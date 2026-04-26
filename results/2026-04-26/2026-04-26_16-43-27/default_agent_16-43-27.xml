@@ -1,0 +1,43 @@
+<?xml version="1.0" ?>
+<root BTCPP_format="4">
+  <BehaviorTree ID="main_tree">
+    <ReactiveSequence>
+      <LocalSensingNode/>
+      <ReactiveFallback>
+        <IsMissionCompleted/>
+        <ReactiveSequence>
+          <ReactiveFallback>
+            <IsTaskNearby/>
+            <ReactiveSequence>
+              <ReactiveFallback>
+                <IsTaskAssigned/>
+                <ReactiveSequence>
+                  <ReactiveFallback>
+                    <IsTaskSensored/>
+                    <ExploreTask/>
+                  </ReactiveFallback>
+                  <AssignTask/>
+                </ReactiveSequence>
+              </ReactiveFallback>
+              <MoveToTask/>
+            </ReactiveSequence>
+          </ReactiveFallback>
+          <CompleteTask/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+    </ReactiveSequence>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="AssignTask"/>
+    <Action ID="CompleteTask"/>
+    <Action ID="ExploreTask"/>
+    <Action ID="LocalSensingNode"/>
+    <Action ID="MoveToTask"/>
+    <Condition ID="IsMissionCompleted" editable="true"/>
+    <Condition ID="IsTaskAssigned" editable="true"/>
+    <Condition ID="IsTaskNearby" editable="true"/>
+    <Condition ID="IsTaskSensored" editable="true"/>
+  </TreeNodesModel>
+
+</root>

@@ -1,0 +1,19 @@
+platform: ros2
+
+scenario:
+  environment: scenarios.ros2.webots_fire_suppression
+
+agent:
+  namespaces: "/Fire_UGV_1"  # default; override with --ns, e.g. --ns /Fire_UGV_2
+  behavior_tree_xml: "default_bt.xml"
+
+decision_making: 
+  plugin: plugins.mrta.cbaa.cbaa.CBAA
+
+bt_runner:
+  bt_tick_rate: 10.0
+  bt_visualiser:
+    enabled: True
+    screen_width: 600
+    screen_height: 600
+  profiling_mode: False

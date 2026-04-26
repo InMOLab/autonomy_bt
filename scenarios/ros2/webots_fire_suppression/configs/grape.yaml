@@ -1,0 +1,25 @@
+platform: ros2
+
+scenario:
+  environment: scenarios.ros2.webots_fire_suppression
+
+agent:
+  namespaces: "/Fire_UGV_1"  # default; override with --ns, e.g. --ns /Fire_UGV_2
+  behavior_tree_xml: "default_bt.xml"
+
+decision_making: # Case 3
+  plugin: plugins.mrta.grape.grape.GRAPE
+  GRAPE:
+    local_convergence: False # Each agent considers itself converged if its task hasn't changed, ignoring others
+    cost_weight_factor: 1.0
+    social_inhibition_factor: 1 # Options: Higher number becomes suitable for MT-SR type problems
+    initialize_partition: Distance # Options: None; Distance      
+    reinitialize_partition_on_completion: Distance # Options: None; Distance; 
+
+bt_runner:
+  bt_tick_rate: 10.0
+  bt_visualiser:
+    enabled: True
+    screen_width: 600
+    screen_height: 600
+  profiling_mode: False

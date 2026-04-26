@@ -1,0 +1,23 @@
+platform: ros2
+
+scenario:
+  environment: scenarios.ros2.webots_fire_suppression
+
+agent:
+  namespaces: "/Fire_UGV_1"  # default; override with --ns, e.g. --ns /Fire_UGV_2
+  behavior_tree_xml: "default_bt.xml"
+
+decision_making: # Case 3
+  plugin: plugins.mrta.greedy.greedy.FirstClaimGreedy
+  FirstClaimGreedy:  
+    mode: MinDist  # Options: Random; MinDist; MaxUtil
+    weight_factor_cost: 10000.0 # Only used for `MaxUtil` mode
+    enforced_collaboration: False  
+
+bt_runner:
+  bt_tick_rate: 10.0
+  bt_visualiser:
+    enabled: True
+    screen_width: 600
+    screen_height: 600
+  profiling_mode: False

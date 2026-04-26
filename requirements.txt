@@ -1,0 +1,7 @@
+pygame
+pyyaml
+numpy
+imageio
+pandas
+matplotlib
+seaborn

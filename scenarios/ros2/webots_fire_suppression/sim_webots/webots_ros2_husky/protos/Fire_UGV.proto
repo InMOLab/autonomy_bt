@@ -1,0 +1,323 @@
+#VRML_SIM R2023b utf8
+# license: Apache License 2.0
+# license url: http://www.apache.org/licenses/LICENSE-2.0
+# This is a proto file for Webots for the Husky
+# Extracted from: /home/lsbean991/workspace/others/husky_file/husky/husky_description/urdf/husky.urdf
+
+PROTO Fire_UGV [
+  field  SFVec3f     translation     0 0 0
+  field  SFRotation  rotation        0 0 1 0
+  field  SFString    name            "Fire_UGV"  # Is `Robot.name`.
+  field  SFString    controller      "<extern>"   # Is `Robot.controller`.
+  field  MFString    controllerArgs  []       # Is `Robot.controllerArgs`.
+  field  SFString    customData      ""       # Is `Robot.customData`.
+  field  SFBool      supervisor      FALSE    # Is `Robot.supervisor`.
+  field  SFBool      synchronization TRUE     # Is `Robot.synchronization`.
+  field  SFBool      selfCollision   FALSE    # Is `Robot.selfCollision`.
+]
+{
+  Robot {
+    translation IS translation
+    rotation IS rotation
+    controller IS controller
+    controllerArgs IS controllerArgs
+    customData IS customData
+    supervisor IS supervisor
+    synchronization IS synchronization
+    selfCollision IS selfCollision
+    children [
+      DEF base_link_visual CadShape {
+        url "../resource/husky_description/meshes/base_link.dae"
+      }
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis 0.000000 1.000000 0.000000
+          anchor 0.256000 0.285400 0.032820
+        }
+        device [
+          RotationalMotor {
+            name "front_left_wheel_joint"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "front_left_wheel_joint_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation 0.256000 0.285400 0.032820
+          children [
+            DEF wheel_visual CadShape {
+              url "../resource/husky_description/meshes/wheel.dae"
+            }
+          ]
+          name "front_left_wheel"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570795
+            children [
+              Cylinder {
+                radius 0.1651
+                height 0.1143
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 2.637000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              2.467000e-02 4.411000e-02 2.467000e-02
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis 0.000000 1.000000 0.000000
+          anchor 0.256000 -0.285400 0.032820
+        }
+        device [
+          RotationalMotor {
+            name "front_right_wheel_joint"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "front_right_wheel_joint_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation 0.256000 -0.285400 0.032820
+          children [
+            USE wheel_visual
+          ]
+          name "front_right_wheel"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570795
+            children [
+              Cylinder {
+                radius 0.1651
+                height 0.1143
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 2.637000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              2.467000e-02 4.411000e-02 2.467000e-02
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis 0.000000 1.000000 0.000000
+          anchor -0.256000 0.285400 0.032820
+        }
+        device [
+          RotationalMotor {
+            name "rear_left_wheel_joint"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "rear_left_wheel_joint_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation -0.256000 0.285400 0.032820
+          children [
+            USE wheel_visual
+          ]
+          name "rear_left_wheel"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570795
+            children [
+              Cylinder {
+                radius 0.1651
+                height 0.1143
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 2.637000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              2.467000e-02 4.411000e-02 2.467000e-02
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis 0.000000 1.000000 0.000000
+          anchor -0.256000 -0.285400 0.032820
+        }
+        device [
+          RotationalMotor {
+            name "rear_right_wheel_joint"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "rear_right_wheel_joint_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation -0.256000 -0.285400 0.032820
+          children [
+            USE wheel_visual
+          ]
+          name "rear_right_wheel"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570795
+            children [
+              Cylinder {
+                radius 0.1651
+                height 0.1143
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 2.637000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              2.467000e-02 4.411000e-02 2.467000e-02
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+      Solid {
+        translation -0.081200 0.000000 0.245000 # 0.081200
+        children [
+          DEF top_plate_visual CadShape {
+            url "../resource/husky_description/meshes/top_plate.dae"
+          }
+        ]
+        name "top_plate_link"
+        boundingObject Box {
+          size 0.5 0.4 0.01  # top_plate의 대략적인 가로, 세로, 두께
+        }        
+        physics Physics {
+        }
+      }
+      Solid {
+        children [
+          DEF top_chassis_visual CadShape {
+            url "../resource/husky_description/meshes/top_chassis_red.dae"
+          }
+        ]
+        name "top_chassis_link"
+        boundingObject Box {
+            size 0.57 0.36 0.01
+          }
+        physics Physics {
+        }
+      }
+      Solid {
+        translation -0.480000 0.000000 0.091000
+        rotation 0.000000 0.000000 0.000000 3.141590
+        children [
+          DEF bumper_visual CadShape {
+            url "../resource/husky_description/meshes/bumper.dae"
+          }
+        ]
+        name "rear_bumper_link"
+        boundingObject Box {
+            size 0.02 0.45 0.1
+          }
+        physics Physics {
+        }
+      }
+      Solid {
+        translation 0.480000 0.000000 0.091000
+        children [
+          DEF bumper_visual CadShape {
+            url "../resource/husky_description/meshes/bumper.dae"
+          }
+        ]
+        name "front_bumper_link"
+        boundingObject Box {
+            size 0.02 0.45 0.1
+          }
+        physics Physics {
+        }
+      }
+      Solid {
+        translation 0.272000 0.000000 0.245000
+        children [
+          DEF user_rail_visual CadShape {
+            url "../resource/husky_description/meshes/user_rail.dae"
+          }
+        ]
+        name "user_rail_link"
+        boundingObject Box {
+            size 0.02 0.02 0.02
+          }
+        physics Physics {
+        }
+      }
+      Solid {
+        translation 0.2 0.000000 0.25  # 0.081200 0.000000 0.294000
+        rotation 0.000000 0.000000 0.000000 0.000000
+        children [
+          DEF rplidar_visual CadShape {
+            url "../resource/husky_description/meshes/rplidar.dae"
+          }
+          Lidar {
+            name "scan"  # /scan 토픽으로 설정
+            fieldOfView 3.141593 #2.094395 #6.283185 # 라디안 (= 360도)
+            horizontalResolution 512 # 빔 개수
+            numberOfLayers 1 # xy평면에 대한 라이다 정보 추출. 1이 아니면 xyz평면에 대한 정보
+            minRange 0.593700 # 측정 최소 범위
+            maxRange 30.000000 # 측정 최대 범위
+            near 0.593700 # Lidar 최소 측정 시작 범위 (Husky 앞과의 거리에 맞춰 조정) 0.35정도긴 한데, 0.4로 맞춰보았음.
+          }
+        ]
+        name "rpLidar_link"
+        boundingObject Box {
+            size 0.07 0.07 0.05
+          }
+        physics Physics {
+        }
+      }
+    ]
+    name IS name
+    boundingObject Group {
+      children [
+        Pose {
+          translation 0.000000 0.000000 0.061875
+          children [
+            Box {
+              size 0.987400 0.570900 0.123750
+            }
+          ]
+        }
+        Pose {
+          translation 0.000000 0.000000 0.175625
+          children [
+            Box {
+              size 0.789920 0.570900 0.103750
+            }
+          ]
+        }
+      ]
+    }
+    physics Physics {
+      density -1
+      mass 2.6 #46.034000
+      centerOfMass [ 0.000000 0.000000 0.060000 ] #[ -0.000650 -0.085000 0.062000 ]
+      inertiaMatrix [
+        6.022000e-01 1.738600e+00 2.029600e+00
+        -2.364000e-02 -1.197000e-01 -1.544000e-03
+      ]
+    }
+  }
+}
+
+# x, y, z 위치 => (+ : 왼쪽, 위쪽), (- : 오른쪽, 아래쪽)
+# x : 정면 기준 상하, y : 정면 기준 좌우

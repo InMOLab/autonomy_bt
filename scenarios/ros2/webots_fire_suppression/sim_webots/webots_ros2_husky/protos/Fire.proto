@@ -1,0 +1,46 @@
+#VRML_SIM R2025a utf8
+# Fire PROTO
+# - radius: Size of the fire sphere
+
+PROTO Fire [
+  field SFVec3f    translation  0 0 0
+  field SFRotation rotation     0 0 1 0
+  field SFFloat    radius       1.0
+]
+{
+  Pose {
+    translation IS translation
+    rotation IS rotation
+    children [
+      # Outer Sphere (Transparent Red)
+      Shape {
+        appearance Appearance {
+          material Material {
+            diffuseColor 0.878431 0.105882 0.141176
+            emissiveColor 0.647059 0.113725 0.176471
+            shininess 0.5
+            specularColor 0.878431 0.105882 0.141176
+            transparency 0.7
+          }
+        }
+        geometry Sphere {
+          radius IS radius
+          subdivision 3
+        }
+      }
+      # Inner Sphere (Solid Red core)
+      Shape {
+        appearance Appearance {
+          material Material {
+            diffuseColor 0.878431 0.105882 0.141176
+            emissiveColor 0.752941 0.109804 0.156863
+          }
+        }
+        geometry Sphere {
+          radius 0.1
+          subdivision 3
+        }
+      }
+    ]
+  }
+}

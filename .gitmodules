@@ -1,0 +1,6 @@
+[submodule "plugins/mission_autonomy"]
+	path = plugins/mission_autonomy
+	url = https://github.com/InMOLab/mission_autonomy
+[submodule "scenarios/private"]
+	path = scenarios/private
+	url = https://github.com/InMOLab/scenarios_private
