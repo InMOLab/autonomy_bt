@@ -78,8 +78,7 @@ class DistributedHungarian:
         
         # Return result
         self._update_message()
-        self.agent.reset_messages_received()
-        
+
         # Debug Log for Assignment
         # assigned_id = self.assigned_task.task_id if self.assigned_task else "None"
         # print(f"[Agent {self.agent.agent_id}] Assigned Task: {assigned_id}")
