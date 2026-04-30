@@ -15,6 +15,7 @@ the MONA platform: it inherits `MonaSim` and `MonaAgent` (instead of
 | Path | Description |
 |------|-------------|
 | [`basic/`](basic/) | Default 4-agent / 100-task CBBA demo at the four corners of the arena. The minimal MONA scenario; serves as a regression check and a starting template for new MONA adaptations. |
+| [`letter_show/`](letter_show/) | 9 MONA robots forming the letters of "ROBOTICS AND AUTOMATION" one at a time. Adds a 2-phase BT (GRAPE picks a sub-cluster of pixels, then CBBA / Hungarian picks one pixel inside it), a `SuperTask` entity, per-agent battery, and a replace-on-arrival generation loop. Reference for richer MONA scenarios that introduce their own entities and plugin subclasses. |
 
 (Future MONA-adapted scenarios — e.g. `collaborative_transport`,
 `harbor_logistics` — go in here as siblings of `basic/`.)
