@@ -226,8 +226,13 @@ class BaseSim:
             self.clock.tick(self.sampling_freq*self.speed_up_factor)
 
     def close(self):
-        pygame.quit()
+        # Save first, then tear down pygame. On Linux/X11, calling
+        # pygame.quit() before save_results() leaves matplotlib's X
+        # connection in an inconsistent state (BadWindow / X_GetProperty
+        # error). Windows / macOS aren't affected, but the safer order
+        # works on all three.
         self.save_results()
+        pygame.quit()
 
     def save_results():
         # Define it at your scenario-specific `env.py`
