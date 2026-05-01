@@ -30,13 +30,14 @@ class MonaComm:
         """
         Initialize MONA communication manager.
 
+        Activation is decided by ``MonaSim`` via ``mona.mode`` flags —
+        if a ``MonaComm`` instance exists at all, it is always active.
+
         Args:
             mona_cfg: Configuration dict with keys:
-                - enabled: bool
                 - robots: list of {agent_id, host, port}
                 - debug_api: optional debug server config
         """
-        self.enabled = bool(mona_cfg.get("enabled", False))
         self.robot_map = self._parse_robot_config(mona_cfg.get("robots", []))
 
         # Connection state
@@ -85,9 +86,6 @@ class MonaComm:
             agent: Agent object with agent_id attribute
             msg_override: Message dict to send (uses agent.message_to_share if None)
         """
-        if not self.enabled:
-            return
-
         try:
             agent_id = int(agent.agent_id)
         except (AttributeError, TypeError, ValueError):
@@ -113,9 +111,6 @@ class MonaComm:
         Returns:
             Latest monitor dict or None if unavailable
         """
-        if not self.enabled:
-            return None
-
         # Drain buffer and return latest message
         latest = None
         while True:

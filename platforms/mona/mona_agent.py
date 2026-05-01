@@ -2,17 +2,18 @@
 MonaAgent — BaseAgent extended with the rotation-shim controller and
 optional MONA real-robot interfaces (UDP motion + TCP/ESP-NOW peer comm).
 
-Composition (set via yaml + sim.py):
-    - mona.enabled = True + matching agent_id in mona.robots
+Composition (set via yaml + sim.py, driven by ``mona.mode``):
+    - motion-enabled mode (puppet / offboard) + matching agent_id in mona.robots
         → self._mona (MonaClient) is created; follow() sends UDP G commands
           and update() skips physics. Position arrives via set_position()
           from a WhyCon UDP listener.
-    - sim.py assigns agent.mona_comm = MonaComm(...)
-        → update() compresses CBBA broadcasts and forwards them through
-          mona_comm; received peer messages are decoded into
-          self.messages_received, replacing the in-process P2P loop.
+    - comm-enabled mode (p2p / offboard)
+        → sim.py assigns agent.mona_comm = MonaComm(...). update()
+          compresses CBBA broadcasts and forwards them through mona_comm;
+          received peer messages are decoded into self.messages_received,
+          replacing the in-process P2P loop.
 
-Either, both, or neither of these can be active per scenario.
+Either, both, or neither of these can be active per mode.
 The rotation shim is always on (no yaml flag): full_simulation also uses it
 so simulated MONA dynamics match the real robot's rotate-then-move profile.
 """
@@ -320,7 +321,7 @@ class MonaAgent(BaseAgent):
     def _receive_p2p_messages(self):
         """Pull peer messages from MonaComm, decompress, and update neighbour state."""
         mc = self.mona_comm
-        if mc is None or not mc.enabled:
+        if mc is None:
             return
 
         now = time.time()
