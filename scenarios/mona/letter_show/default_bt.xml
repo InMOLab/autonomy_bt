@@ -9,6 +9,7 @@
         <IsArrivedAtTarget/>
         <MoveToTarget/>
       </ReactiveFallback>
+      <Idle/>
     </ReactiveSequence>
   </BehaviorTree>
 
