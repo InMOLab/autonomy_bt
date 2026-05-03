@@ -198,7 +198,7 @@ class Sim(BaseSim):
 
         WARMUP_SEC = 1.0
         STABILITY_SEC = 1.0
-        TIMEOUT_SEC = 2.5
+        TIMEOUT_SEC = 5.0
 
         if elapsed_real > WARMUP_SEC:
             current_signature = []
@@ -206,13 +206,17 @@ class Sim(BaseSim):
 
             for agent in self.agents:
                 if agent.type == 'Follower':
-                    planned = getattr(agent, 'planned_tasks', [])
-                    if not planned:
+                    # Use `assigned_task_id` directly: shared GRAPE only
+                    # refreshes `planned_tasks` on coalition switches, so it
+                    # stays empty after convergence and would otherwise
+                    # block stability detection.
+                    task_id = getattr(agent, 'assigned_task_id', None)
+                    if task_id is None:
                         all_assigned = False
                         self.last_signature_change_real_time = None
                         self.last_assignment_signature = None
                         break
-                    current_signature.append((agent.agent_id, planned[0].task_id))
+                    current_signature.append((agent.agent_id, task_id))
 
             if all_assigned:
                 current_signature.sort()
