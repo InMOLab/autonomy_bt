@@ -1,8 +1,8 @@
 scenario: 
   environment: scenarios.pygame.features.cen_wrapper
 
-decision_making: # Case 1
-  plugin: scenarios.pygame.features.cen_wrapper.plugins.grape.GRAPE
+decision_making:
+  plugin: plugins.mrta.grape.grape.GRAPE
   cen_plugin: scenarios.pygame.features.cen_wrapper.plugins.cen_grape.CenGRAPE
   GRAPE:
     cost_weight_factor: 1.0
@@ -11,30 +11,8 @@ decision_making: # Case 1
     reinitialize_partition_on_completion: Distance # Options: None; Distance; 
     local_convergence: True
 
-# decision_making: # Case 2
-#   plugin: scenarios.pygame.features.cen_wrapper.plugins.cbba.CBBA
-#   CBBA:  
-#     max_tasks_per_agent: 2
-#     task_reward_discount_factor: 0.999 
-#     winning_bid_cancel: True
-#     acceptable_empty_bundle_duration: 500 # sec
-
-# decision_making: # Case 3
-#   plugin: plugins.mrta.greedy.greedy.FirstClaimGreedy
-#   FirstClaimGreedy:  
-#     mode: MinDist  # Options: Random; MinDist; MaxUtil
-#     weight_factor_cost: 10000.0 # Only used for `MaxUtil` mode
-#     enforced_collaboration: False  
-
-# decision_making: # Case 4
-#   plugin: scenarios.pygame.features.cen_wrapper.plugins.dec_hungarian.DistributedHungarian
-#   Hungarian:
-#     task_reward_discount_factor: 0.999 
-#     epsilon: 1e-10
-#     dummy_cost: 0.0
-
 case_name: CEN GRAPE
-setup: GRAPE_N12_M48
+setup: GRAPE_N40_M10
 agents:
   types:
     Leader:
@@ -44,7 +22,7 @@ agents:
       situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
     Follower:
       behavior_tree_xml: bt_follower_static.xml
-      quantity: 12
+      quantity: 40
       communication_radius: 2000 # fully connected (Proposition 1 등가성 가정 — 통일)
       situation_awareness_radius: 2000 # 모든 task 를 인식 (등가성 비교 fair 화)
   locations:
@@ -62,7 +40,7 @@ agents:
   communication_time_endurance : 2.0 # sec
 
 tasks:
-  quantity: 48
+  quantity: 10
   locations:
     x_min: 0
     x_max: 1400
@@ -80,6 +58,7 @@ tasks:
     tasks_per_generation: 25
 
 simulation:
+  message_snapshot: true   # parallel-execution emulation (needed for cen_wrapper 3-way equivalence)
   mode: dynamic
   random_seed: 1  # Random seed (integer ≥ 1), or None to disable seeding
   sampling_freq: 1.0 
