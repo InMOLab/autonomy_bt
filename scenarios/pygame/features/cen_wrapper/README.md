@@ -18,20 +18,28 @@ back. Each algorithm is tested across three setups:
 
 This scenario is a port of `space-simulator-cendec/scenarios/features/cenwrapper/`
 into the autonomy_bt 4-layer structure (`core` / `platforms` / `plugins`
-/ `scenarios`). The student's algorithm logic is preserved as-is —
-only import paths are rewired, plus two structural cleanups specific to
-this port:
+/ `scenarios`). Three structural cleanups vs. the cendec original:
 
+- **dec-side plugins** (`cbba`, `grape`, `dec_hungarian`) reuse the
+  shared `plugins/mrta/*` implementations — no cen_wrapper-local copies
+  any more. CBBA and Distributed Hungarian use the shared classes
+  directly. GRAPE uses a local `plugins/grape.py` (a thin subclass of
+  the shared GRAPE that overrides `_initial_time_stamp` /
+  `_new_time_stamp` to return `agent_id`) — this makes the d-mutex
+  tiebreak deterministic, which is required for the 3-way equivalence
+  experiment to converge to the same nash equilibrium across all three
+  modes.
 - **cen-side plugins** (`sga`, `cen_grape`, `hungarian`) are refactored
   from BT action nodes into plain plugin classes loaded via
-  `decision_making.cen_plugin`. They are now dispatched by a single
+  `decision_making.cen_plugin`. They are dispatched by a single
   `AssignCenTask` BT node — exact mirror of how `AssignTask` dispatches
   the dec-side plugin via `decision_making.plugin`. This collapses the
   three former `bt_leader_{sga,cengrape,hungarian}.xml` files into one
   `bt_leader.xml`.
-- A few wrapper-internal behaviours (per-agent `decision_maker`, message
-  accumulation in `GatherLocalInfo`) are kept local to this scenario to
-  avoid touching shared modules.
+- A few wrapper-internal behaviours (per-agent `decision_maker`,
+  syncing target follower's `messages_received` from the leader's
+  blackboard view inside `CentralisationWrapper`) are kept local to
+  this scenario.
 
 ## How to Run
 
@@ -44,7 +52,7 @@ python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/static/cb
 python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/static/cbba/cenwrapper_cbba.yaml
 python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/static/cbba/sga.yaml
 
-# GRAPE (12 agents, 48 tasks)
+# GRAPE (40 agents, 10 tasks)
 python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/static/grape/grape.yaml
 python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/static/grape/cenwrapper_grape.yaml
 python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/static/grape/cen_grape.yaml
@@ -70,21 +78,25 @@ python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/dynamic/c
 Each yaml lives under `configs/<mode>/<algorithm>/` where `<mode>` is
 `static` or `dynamic`. The static folder is the equivalence-test setup
 (simulation terminates once allocations are stable for `STABILITY_SEC`
-real-time seconds, or after `TIMEOUT_SEC = 2.5`s — see
-`sim/sim.py::update_simulation`); the dynamic folder leaves the
+real-time seconds, or after `TIMEOUT_SEC = 5`s — see
+`sim/sim.py::_check_static_termination`); the dynamic folder leaves the
 simulation running for visual demo / dynamic-task-generation experiments.
 
 Key shared parameters:
 - **CBBA setup** (`CBBA_N10_M50_MT5`): 10 followers, 50 tasks,
   `max_tasks_per_agent = 5`, `task_reward_discount_factor = 0.999`.
-- **GRAPE setup** (`GRAPE_N12_M48`): 12 followers, 48 tasks. Note
-  `cen_grape.yaml` uses a different `GRAPE_N40_M10` setup because that
-  baseline is a separate ablation, not a 1:1 comparison.
+- **GRAPE setup** (`GRAPE_N40_M10`): 40 followers, 10 tasks (all three
+  GRAPE yamls share the same setup for 3-way equivalence comparison).
 - **Hungarian setup** (`HUNGARIAN_N12_M12`): 12 followers, 12 tasks
-  (square assignment). 
+  (square assignment).
 - **Communication**: per-type `communication_radius` —
   `Leader = 2000` (effectively global), `Follower = 2000` (fully connected).
 - **Random seed**: `1` (fixed for reproducibility across the three setups).
+- **`simulation.message_snapshot: true`**: enables BTRunner's tick-start
+  peer-message snapshot so the sequential agent loop simulates parallel
+  execution. Required for the 3-way equivalence experiment (the
+  CentralisationWrapper's per-target dec-plugin invocation needs all
+  followers to see the same peer view in a tick).
 
 ## Behaviour Trees
 
@@ -147,25 +159,31 @@ works on the dec side.
 
 ## Static-Mode Equivalence (current state)
 
-The static configs are designed to verify the paper's Proposition 1
-("Allocation Equivalence" — pure-dec, wrapper, and centralised baseline
-should produce the same allocation). Current observation, identical
-between the original cendec repo and this port:
+The static configs verify the paper's Proposition 1 ("Allocation
+Equivalence" — pure-dec, wrapper, and centralised baseline should
+produce the same allocation). Verified across 4 random seeds via
+`_static_smoke.py`:
 
 | Algorithm | dec ↔ wrapper ↔ baseline |
 |-----------|---------------------------|
-| Hungarian | **3-way identical** ✓     |
-| CBBA      | **3-way identical** ✓ (with `Follower.communication_radius = 2000`, i.e. fully connected) |
-| GRAPE     | pure-dec ↔ cen_grape (centralised) identical; wrapper diverges on agents 0 ↔ 2 (swap)  |
+| **CBBA**      | **3-way identical** ✓ |
+| **Hungarian** | **3-way identical** ✓ |
+| **GRAPE**     | **3-way identical** ✓ (with deterministic `time_stamp = agent_id`) |
 
-CBBA 가 fully connected (radius=2000) 일 때만 3-way 일치하는 건 학생
-yaml 의 `Follower.communication_radius=150` 셋팅이 fully connected 가정을
-깨고 있었기 때문이에요 (이를 통일해서 정렬). GRAPE 의 wrapper 만 0↔2
-swap 으로 갈라지는 건 알고리즘의 sequential simulation 특성으로 보임 —
-별도 조사 항목.
-
-The numerical outputs of this port match cendec's outputs **byte-for-byte
-on all 9 yamls** (validated via `_static_smoke.py`).
+GRAPE 3-way equivalence requires two ingredients:
+1. **`simulation.message_snapshot: true`** — without it, the sequential
+   `BTRunner` agent loop creates within-tick cascade where agent N+1
+   reads agent N's just-updated message, breaking parallel-execution
+   semantics. The wrapper / cen_grape modes don't suffer from this
+   (they iterate in their own controlled loop), but pure-dec does.
+2. **Deterministic d-mutex** via `plugins/grape.py` (the local subclass)
+   — the shared GRAPE samples `time_stamp ~ U(0,1)` on each switch,
+   making the d-mutex tiebreak random. Under fully-connected
+   communication, all agents converge on `evolution_number` together,
+   so `time_stamp` decides who wins; with random tie-breaks each mode
+   reaches a different nash equilibrium. Setting `time_stamp = agent_id`
+   makes the highest-id agent always win, matching `cen_grape.CenGRAPE`'s
+   priority order.
 
 ## Files
 
@@ -180,30 +198,31 @@ scenarios/pygame/features/cen_wrapper/
 ├── configs/
 │   ├── static/{cbba,grape,hungarian}/   # 9 yamls — equivalence tests
 │   └── dynamic/{cbba,grape,hungarian}/  # 9 yamls — runtime / visual demo
-├── plugins/
-│   ├── cbba.py                         # dec CBBA  — used by AssignTask via `decision_making.plugin`
-│   ├── grape.py                        # dec GRAPE
-│   ├── dec_hungarian.py                # dec Distributed Hungarian
+├── plugins/                            # cen-side plugins + GRAPE local subclass
+│   ├── grape.py                        # dec GRAPE subclass — overrides time_stamp hooks for deterministic d-mutex (3-way equivalence)
 │   ├── sga.py                          # cen Sequential Greedy — used by AssignCenTask via `decision_making.cen_plugin`
 │   ├── cen_grape.py                    # cen GRAPE
 │   └── hungarian.py                    # cen Hungarian
-└── sim/
-    ├── sim.py                          # Sim(BaseSim) — leader toggle, static-mode termination, custom CSV saver
-    ├── agent.py                        # Agent + generate_agents (per-type BT XML pattern)
-    └── task.py                         # Task + generate_tasks (+1000 task-seed offset, matching cendec)
+├── sim/
+│   ├── sim.py                          # Sim(BaseSim) — leader toggle, static-mode termination, custom CSV saver
+│   ├── agent.py                        # Agent + generate_agents (per-type BT XML pattern)
+│   └── task.py                         # Task + generate_tasks (+1000 task-seed offset, matching cendec)
+└── test/
+    └── static_smoke.py                 # 3-way equivalence smoke test (CBBA / GRAPE / Hungarian × 3 modes × N seeds)
 ```
 
 ## Yaml keys (cen_wrapper-specific)
 
 | key | description |
 |---|---|
-| `decision_making.plugin` | Dotted path to the **dec** plugin class — one of `scenarios.pygame.features.cen_wrapper.plugins.{cbba.CBBA, grape.GRAPE, dec_hungarian.DistributedHungarian}`. Loaded by `AssignTask` (used inside `CentralisationWrapper` on the leader, and as the follower-side fallback when not connected to leader). |
+| `decision_making.plugin` | Dotted path to the **dec** plugin class. CBBA / Hungarian use the shared `plugins.mrta.{cbba.cbba.CBBA, hungarian.dec_hungarian.DistributedHungarian}`. GRAPE uses the local `scenarios.pygame.features.cen_wrapper.plugins.grape.GRAPE` (deterministic time_stamp subclass for 3-way equivalence). Loaded by `AssignTask` (used inside `CentralisationWrapper` on the leader, and as the follower-side fallback when not connected to leader). |
 | `decision_making.cen_plugin` | Dotted path to the **cen** plugin class — one of `scenarios.pygame.features.cen_wrapper.plugins.{sga.SGA, cen_grape.CenGRAPE, hungarian.Hungarian}`. Loaded by `AssignCenTask` (only used by `bt_leader.xml`, i.e. centralised-baseline yamls — `sga.yaml`, `cen_grape.yaml`, `hungarian.yaml`). |
 | `decision_making.CBBA` / `GRAPE` / `Hungarian` | Per-algorithm parameter sub-block (e.g. `task_reward_discount_factor`, `social_inhibition_factor`, ...). Read by the corresponding plugin at module-load time. |
 | `agents.types.Leader.quantity` | Set to 0 for pure-dec yamls, 1 for wrapper / centralised-baseline yamls. |
 | `agents.types.{Leader,Follower}.behavior_tree_xml` | Per-type BT XML. Followers use `bt_follower_static.xml` (static mode) or `bt_follower.xml` (dynamic mode); Leaders use `bt_leader.xml` (centralised baseline — uses `cen_plugin`) or `bt_leader_wrapper.xml` (CentralisationWrapper — uses `plugin`). |
 | `agents.types.{Leader,Follower}.communication_radius` | Per-type radius. There is **no** global `agents.communication_radius` — `BaseAgent` falls back to `0` (global) at module load. |
 | `simulation.mode` | `static` triggers the wall-clock stability check in `sim/sim.py`; `dynamic` lets the run continue indefinitely. |
+| `simulation.message_snapshot` | `true` enables BTRunner's tick-start peer-message snapshot (parallel-execution emulation). Required for 3-way equivalence; default is `false` (cascade is faster for high-contention scenarios elsewhere, e.g. `simple/grape.yaml`). |
 | `case_name` / `setup` | Used by the custom `ResultSaver` to name CSVs as `{case_name}_seed{seed}_{type}.csv` and to subdir the static-mode allocation snapshots under `output/assignments/{setup}/`. |
 
 ## Test Verification
@@ -212,11 +231,28 @@ scenarios/pygame/features/cen_wrapper/
   and — when `Leader.quantity > 0` — a single Leader agent surrounded
   by its `leader_communication_radius_circle`.
 - In static mode the simulation runs ~2–6 seconds of wall clock,
-  prints `Assignments stable for ...s` (or a timeout message), saves
-  the allocation snapshot under `output/assignments/{setup}/`, and
-  exits.
+  prints `Assignments stable for ...s` (or a timeout message at 5s),
+  saves the allocation snapshot under `output/assignments/{setup}/`,
+  and exits.
 - Pressing `L` during a wrapper / baseline run despawns the Leader and
   forces the followers to fall back to the local `AssignTask` branch.
   Pressing `L` again respawns the Leader.
-- All 9 static yamls produce assignments that match cendec
-  byte-for-byte (verified by `_static_smoke.py`).
+- All 9 static yamls produce 3-way matching assignments across 4
+  random seeds, verified by the smoke test below.
+
+## Smoke test
+
+3-way equivalence smoke test (CBBA / GRAPE / Hungarian × 3 modes per
+algorithm × N seeds):
+
+```bash
+# Default — 1 seed (random_seed=1)
+python scenarios/pygame/features/cen_wrapper/test/static_smoke.py
+
+# Rigorous — 4 seeds (1, 2, 3, 4)
+python scenarios/pygame/features/cen_wrapper/test/static_smoke.py --seeds=4
+```
+
+Output: per-algorithm SUMMARY with `[OK ALL SEEDS MATCH]` (3-way
+identical across all seeds) or `[X]` (mismatch — divergent rows
+shown).
