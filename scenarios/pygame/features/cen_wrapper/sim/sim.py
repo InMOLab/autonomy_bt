@@ -154,31 +154,11 @@ class Sim(BaseSim):
 
     # ── Keyboard ───────────────────────────────────────────────────────
 
-    def handle_keyboard_events(self):
-        """'L' 키로 leader 제거/생성. 외엔 표준 (Q/ESC quit, P pause, S record, R reset)."""
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
-                    self.running = False
-                elif event.key == pygame.K_p:
-                    self.game_paused = not self.game_paused
-                elif event.key == pygame.K_s:
-                    if not self.recording:
-                        self.recording = True
-                        self.frames = []
-                        self.last_frame_time = self.simulation_time
-                        print("Recording started...")
-                    else:
-                        self.recording = False
-                        print("Recording stopped.")
-                        self.result_saver.save_gif(self.frames)
-                elif event.key == pygame.K_r:
-                    print("Scenario reset!")
-                    self.reset()
-                elif event.key == pygame.K_l:
-                    self.toggle_leader()
+    def _handle_extra_keys(self, events):
+        """'L' key toggles leader removal/respawn (cen_wrapper-specific)."""
+        for event in events:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_l:
+                self.toggle_leader()
 
     def toggle_leader(self):
         if self.leader_present:
