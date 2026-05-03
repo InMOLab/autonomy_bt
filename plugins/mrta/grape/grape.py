@@ -14,7 +14,7 @@ class GRAPE:
         self.agent = agent        
         self.satisfied = False
         self.evolution_number = 0  # Initialize evolution_number
-        self.time_stamp = 0  # Initialize time_stamp            
+        self.time_stamp = self._initial_time_stamp()  # default 0; subclasses may override
         self.partition = {}  # Initialize partition with emptysets        
         self.assigned_task = None           
 
@@ -80,7 +80,7 @@ class GRAPE:
         if _max_utility > _current_utility: 
             self.update_partition(_max_task_id)
             self.evolution_number += 1
-            self.time_stamp = random.uniform(0, 1)      
+            self.time_stamp = self._new_time_stamp()
             self.assigned_task = self.get_assigned_task_from_partition(self.partition, local_tasks_info) # New assignment
             self.satisfied = True
 
@@ -124,7 +124,16 @@ class GRAPE:
 
         return _max_task_id, _max_utility
 
-    def compute_utility(self, task): # Individual Utility Function  
+    def _initial_time_stamp(self):
+        """Hook for subclasses. Default: 0 (preserves original GRAPE behaviour)."""
+        return 0
+
+    def _new_time_stamp(self):
+        """Hook for subclasses. Called after each coalition switch — sampled
+        random in [0, 1) by default; deterministic variants may override."""
+        return random.uniform(0, 1)
+
+    def compute_utility(self, task): # Individual Utility Function
         if task is None:
             return float('-inf')
 
