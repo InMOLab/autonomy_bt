@@ -252,7 +252,14 @@ class BaseSim:
                     print(f"[{self.simulation_time:.2f}] Added {self.tasks_per_generation} new tasks: Generation {self.generation_count}.")
 
     def handle_keyboard_events(self):
-        for event in pygame.event.get():
+        # Fetch events once (pygame.event.get() is destructive) and dispatch to sub-handlers.
+        events = pygame.event.get()
+        self._handle_keyboard(events)
+        self._handle_mouse(events)
+        self._handle_extra_keys(events)
+
+    def _handle_keyboard(self, events):
+        for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
@@ -273,7 +280,10 @@ class BaseSim:
                 elif event.key == pygame.K_r:
                     print("Scenario reset!")
                     self.reset()
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+
+    def _handle_mouse(self, events):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 click_pos = pygame.Vector2(event.pos)
                 for agent in self.agents:
                     if (agent.position - click_pos).length() <= 20:
@@ -291,6 +301,10 @@ class BaseSim:
                     if hasattr(self.dragging_target, 'reset_movement'):
                         self.dragging_target.reset_movement()
                     self.dragging_target = None
+
+    def _handle_extra_keys(self, events):
+        """Hook for subclasses to handle scenario-specific keys. Default: no-op."""
+        pass
 
     def record_screen_frame(self):
         # Capture frame for recording
