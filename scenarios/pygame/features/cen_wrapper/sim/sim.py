@@ -1,20 +1,13 @@
-"""Sim class for cen_wrapper. Ported from
-`space-simulator-cendec/scenarios/features/cenwrapper/env.py`.
+"""Sim class for cen_wrapper.
 
-Adaptations to autonomy_bt's structure:
-  modules.base_env.BaseEnv     →  platforms.pygame.base_sim.BaseSim
-  class Env(BaseEnv)           →  class Sim(BaseSim)
-  modules.utils.ResultSaver    →  platforms.pygame.utils_pygame.ResultSaver
-  modules.utils.config         →  core.utils.config
-
-The student's code is preserved as-is otherwise — leader spawn/despawn
-(key 'L'), static-mode termination, and the custom ResultSaver naming
-(`{case_name}_seed{seed}_{type}.csv`).
+Adds to BaseSim: leader spawn/despawn ('L' key), static-mode auto-termination
+(wall-clock stability/timeout), and assignment-CSV output for the 3-way
+comparison experiment (pure-dec / wrapper / cen_grape).
 """
 import csv
-import datetime
 import os
 import time
+from types import SimpleNamespace
 
 import pygame
 
@@ -25,33 +18,24 @@ from scenarios.pygame.features.cen_wrapper.sim.task import generate_tasks
 from scenarios.pygame.features.cen_wrapper.sim.agent import generate_agents
 
 
-# Subdirectory for static-mode assignment results — comes from yaml's
-# top-level `setup:` key. Matches cendec's behaviour.
+# Subdirectory for static-mode assignment results — comes from yaml's top-level `setup:` key.
 SAVE_SUB_DIR = config.get('setup', 'default')
 
 
 class CustomResultSaver(ResultSaver):
-    """Adds the `{case_name}_seed{seed}_{type}.csv` rename used by the
-    cendec experiments."""
+    """Adds the `{case_name}_seed{seed}_{type}.csv` rename used by the cendec experiments."""
 
     def __init__(self, config):
         super().__init__(config)
-        self.case_name = self._extract_case_name(config)
+        self.case_name = config.get('case_name')
         self.seed = config.get('simulation', {}).get('random_seed')
-
-    def _extract_case_name(self, config):
-        return config.get('case_name', None)
 
     def save_to_csv(self, data_type, data, column_names):
         original_csv_path = super().save_to_csv(data_type, data, column_names)
-
         file_name = f"{self.case_name}_seed{self.seed}_{data_type}.csv"
-        directory = os.path.dirname(original_csv_path)
-        new_csv_path = os.path.join(directory, file_name)
-
+        new_csv_path = os.path.join(os.path.dirname(original_csv_path), file_name)
         os.rename(original_csv_path, new_csv_path)
         print(f"Saved {file_name} at {new_csv_path}")
-
         return new_csv_path
 
 
@@ -61,8 +45,6 @@ class Sim(BaseSim):
 
         # Set generate_tasks for dynamic task generation hook
         self.generate_tasks = generate_tasks
-
-        # Custom result saver
         self.result_saver = CustomResultSaver(config)
 
         # Leader management state (toggle via 'L' key)
@@ -79,7 +61,7 @@ class Sim(BaseSim):
 
         self.data_records = []
 
-        # Static-mode termination state (wall-clock based; see TODO.md item 1)
+        # Static-mode termination state (wall-clock based)
         self.static_start_real_time = time.time()
         self.last_signature_change_real_time = None
         self.last_assignment_signature = None
@@ -188,75 +170,77 @@ class Sim(BaseSim):
 
     def update_simulation(self):
         super().update_simulation()
+        if self.config['simulation'].get('mode', 'dynamic') == 'static':
+            self._check_static_termination()
 
-        if self.config['simulation'].get('mode', 'dynamic') != 'static':
-            return
-
-        # Static mode: wall-clock based stability check (assigned_task_id 기준).
-        now = time.time()
-        elapsed_real = now - self.static_start_real_time
-
+    def _check_static_termination(self):
+        """Auto-stop static-mode runs once Follower assignments stabilise (wall-clock)."""
         WARMUP_SEC = 1.0
         STABILITY_SEC = 1.0
         TIMEOUT_SEC = 5.0
 
+        now = time.time()
+        elapsed_real = now - self.static_start_real_time
+
         if elapsed_real > WARMUP_SEC:
             current_signature = []
             all_assigned = True
-
             for agent in self.agents:
-                if agent.type == 'Follower':
-                    # Use `assigned_task_id` directly: shared GRAPE only
-                    # refreshes `planned_tasks` on coalition switches, so it
-                    # stays empty after convergence and would otherwise
-                    # block stability detection.
-                    task_id = getattr(agent, 'assigned_task_id', None)
-                    if task_id is None:
-                        all_assigned = False
-                        self.last_signature_change_real_time = None
-                        self.last_assignment_signature = None
-                        break
-                    current_signature.append((agent.agent_id, task_id))
+                if agent.type != 'Follower':
+                    continue
+                task_id = getattr(agent, 'assigned_task_id', None)
+                if task_id is None:
+                    all_assigned = False
+                    self.last_signature_change_real_time = None
+                    self.last_assignment_signature = None
+                    break
+                current_signature.append((agent.agent_id, task_id))
 
             if all_assigned:
-                current_signature.sort()
-                current_signature = tuple(current_signature)
-
+                current_signature = tuple(sorted(current_signature))
                 if self.last_assignment_signature == current_signature:
                     stable_duration = now - self.last_signature_change_real_time
                     if stable_duration >= STABILITY_SEC:
-                        print(
-                            f"[{self.simulation_time:.2f}] Assignments stable for "
-                            f"{stable_duration:.1f}s (real). Saving and terminating."
-                        )
+                        print(f"[{self.simulation_time:.2f}] Assignments stable for {stable_duration:.1f}s (real). Saving and terminating.")
                         self.save_static_results()
                         self.running = False
+                        return
                 else:
                     self.last_assignment_signature = current_signature
                     self.last_signature_change_real_time = now
 
         if elapsed_real > TIMEOUT_SEC:
-            print(
-                f"[{self.simulation_time:.2f}] Simulation timed out "
-                f"({TIMEOUT_SEC:.0f}s real). Saving current assignments and terminating."
-            )
+            print(f"[{self.simulation_time:.2f}] Simulation timed out ({TIMEOUT_SEC:.0f}s real). Saving current assignments and terminating.")
             self.save_static_results()
             self.running = False
 
     def save_static_results(self):
         """Save static-mode allocation snapshot to `output/assignments/<setup>/`."""
-        case_name = self.config.get('case_name', 'unknown')
-        case_name = case_name.strip().lower().replace(' ', '_')
+        rows, score_label, algo_type = self._build_static_results_rows()
+
+        case_name = self.config.get('case_name', 'unknown').strip().lower().replace(' ', '_')
         seed = self.config['simulation'].get('random_seed', 0)
 
+        assignments_dir = os.path.join("output/assignments", SAVE_SUB_DIR)
+        os.makedirs(assignments_dir, exist_ok=True)
+        file_path = os.path.join(assignments_dir, f"{case_name}_{seed}_static_results.csv")
+
+        with open(file_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Agent_ID', 'Assigned_Task_ID', 'Bundle', 'Distance_to_Task', score_label])
+            writer.writerows(rows)
+
+        print(f"[Static Results] Saved: {file_path} (algorithm: {algo_type}, metric: {score_label})")
+
+    def _build_static_results_rows(self):
+        """Build per-follower (agent_id, task_id, bundle, path_dist, score) rows + Total row."""
         algo_type = self._detect_algorithm_type()
-        score_label_map = {
+        score_label = {
             'cbba':      'Expected_Reward_from_Task',
             'sga':       'Expected_Reward_from_Task',
             'hungarian': 'Expected_Reward',
             'grape':     'Utility',
-        }
-        score_label = score_label_map.get(algo_type, 'Score')
+        }.get(algo_type, 'Score')
 
         rows = []
         total_dist = 0.0
@@ -265,7 +249,6 @@ class Sim(BaseSim):
         for agent in self.agents:
             if agent.type != 'Follower':
                 continue
-
             planned = getattr(agent, 'planned_tasks', [])
             task_id = planned[0].task_id if planned else None
             bundle = [t.task_id for t in planned] if planned else []
@@ -283,26 +266,10 @@ class Sim(BaseSim):
 
             score = self._compute_agent_score(algo_type, agent, planned)
             total_score += score
-
             rows.append([agent.agent_id, task_id, bundle, agent_path_dist, score])
 
         rows.append(['Total', '', '', total_dist, total_score])
-
-        assignments_dir = os.path.join("output/assignments", SAVE_SUB_DIR)
-        os.makedirs(assignments_dir, exist_ok=True)
-
-        file_name = f"{case_name}_{seed}_static_results.csv"
-        file_path = os.path.join(assignments_dir, file_name)
-
-        with open(file_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'Agent_ID', 'Assigned_Task_ID', 'Bundle',
-                'Distance_to_Task', score_label,
-            ])
-            writer.writerows(rows)
-
-        print(f"[Static Results] Saved: {file_path} (algorithm: {algo_type}, metric: {score_label})")
+        return rows, score_label, algo_type
 
     def _detect_algorithm_type(self):
         case_name = self.config.get('case_name', '').upper()
@@ -317,19 +284,15 @@ class Sim(BaseSim):
         return 'unknown'
 
     def _compute_agent_score(self, algo_type, agent, planned):
-        from types import SimpleNamespace
-
         if not planned:
             return 0.0
 
         if algo_type in ('cbba', 'sga'):
             from scenarios.pygame.features.cen_wrapper.plugins.sga import SGA
             return SGA.calculate_score_along_path(None, agent, planned)
-
         elif algo_type == 'hungarian':
             from scenarios.pygame.features.cen_wrapper.plugins.hungarian import Hungarian
             return Hungarian.compute_weight_value(None, agent, planned[0])
-
         elif algo_type == 'grape':
             from scenarios.pygame.features.cen_wrapper.plugins.cen_grape import CenGRAPE
             partition = {}

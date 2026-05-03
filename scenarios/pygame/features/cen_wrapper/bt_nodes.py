@@ -1,46 +1,26 @@
-"""BT nodes for cen_wrapper. Ported from
-`space-simulator-cendec/scenarios/features/cenwrapper/bt_nodes.py`.
+"""BT nodes for the cen_wrapper scenario.
 
-The student's code is preserved as-is — only the import chain is rewired
-to autonomy_bt's 4-layer structure:
-
-  modules.base_bt_nodes  →  core.bt_nodes (control flow + base classes)
-                          + platforms.pygame.bt_nodes_pygame (private base
-                            nodes like _IsTaskCompleted, _MoveToTask,
-                            _ExecuteTaskWhileFollowing, _ExploreArea,
-                            _IsArrivedAtTask, plus GatherLocalInfo)
-                          + core.bt_nodes_common (AssignTask)
-  modules.utils          →  core.utils
-
-The `time.time()` use in `CentralisationWrapper.run` and
-`AssignCenTask._assign` is intentionally kept (per `TODO.md` item 1-6 —
-to be unified with the broader timing-model cleanup later).
+Most action/condition nodes are thin subclasses of platform base nodes. The scenario-specific contributions are:
+  - `CentralisationWrapper` — Decorator that turns any dec MRTA plugin into a centralised one by simulating the child for each follower.
+  - `AssignCenTask` / `ApplyCenTask` / `TeachBT` — leader↔follower broadcast handshake for the centralised baseline.
 """
 import importlib
 import time
 
-# Control-flow + base classes
+# Composite/decorator names re-exported here so the BT XML parser (`getattr(bt_module, node_type)`) can resolve them from the scenario's `bt_nodes` namespace.
 from core.bt_nodes import (
     BTNodeList, Status, Node,
     Sequence, Fallback, ReactiveSequence, ReactiveFallback, Parallel,
     SyncAction, SyncCondition,
 )
-# NOTE: We do NOT import the global `AssignTask` from `core.bt_nodes_common`.
-# `CentralisationWrapper` invokes its child (`AssignTask`) per follower
-# in turn — each call needs the decision-maker tied to the *target*
-# agent, not to a fixed leader-side instance. The student's cendec uses
-# a per-agent `agent.decision_maker` pattern; we mirror it in the
-# `AssignTask` class defined further down.
-# Pygame-platform private base nodes (we override GatherLocalInfo locally
-# below to mirror cendec's accumulate-then-pick-latest message pattern;
-# autonomy_bt's default GatherLocalInfo resets messages_received per tick,
-# which breaks the leader→follower broadcast handshake used here).
+from core.bt_nodes_common import AssignTask
 from platforms.pygame.bt_nodes_pygame import (
     _IsTaskCompleted,
     _IsArrivedAtTask,
     _MoveToTask,
     _ExecuteTaskWhileFollowing,
     _ExploreArea,
+    GatherLocalInfo,
 )
 
 from core.utils import config
@@ -48,8 +28,7 @@ from core.utils import config
 
 # ─── BT Node Registration ──────────────────────────────────────────────
 CUSTOM_ACTION_NODES = [
-    'GatherLocalInfo',
-    'AssignTask',         # dec-side: per-target-agent decision_maker (used inside CentralisationWrapper)
+    # `AssignTask` and `GatherLocalInfo` come from core / platforms (imported above).
     'AssignCenTask',      # cen-side: leader runs centralised plugin (sga/cen_grape/hungarian)
     'ApplyCenTask',       # follower: applies leader's broadcast result
     'MoveToTarget',
@@ -82,23 +61,21 @@ sampling_time = 1.0 / config['simulation']['sampling_freq']
 agent_max_random_movement_duration = config.get('agents', {}).get(
     'random_exploration_duration', 1000,
 ) or 1000
-# dec-side plugin (cbba / grape / dec_hungarian) — used by AssignTask
-_dec_plugin_path = config['decision_making'].get('plugin')
-decision_making_class = None
-if _dec_plugin_path:
-    _module_path, _class_name = _dec_plugin_path.rsplit('.', 1)
-    decision_making_class = getattr(importlib.import_module(_module_path), _class_name)
-
-# cen-side plugin (sga / cen_grape / hungarian) — used by AssignCenTask
-_cen_plugin_path = config['decision_making'].get('cen_plugin')
-cen_decision_making_class = None
-if _cen_plugin_path:
-    _module_path, _class_name = _cen_plugin_path.rsplit('.', 1)
-    cen_decision_making_class = getattr(importlib.import_module(_module_path), _class_name)
-
 leader_communication_radius = config['agents']['types']['Leader'].get(
     'communication_radius', 0,
 )  # 0 means "global"; used by IsConnectedWithLeader
+
+
+def _load_plugin(yaml_key):
+    path = config['decision_making'].get(yaml_key)
+    if not path:
+        return None
+    module_path, class_name = path.rsplit('.', 1)
+    return getattr(importlib.import_module(module_path), class_name)
+
+
+# Centralised plugin (sga / cen_grape / hungarian) — consumed by AssignCenTask.
+cen_decision_making_class = _load_plugin('cen_plugin')
 
 
 # =============================================================================
@@ -265,74 +242,6 @@ class Halt(SyncAction):
         return Status.RUNNING
 
 
-class AssignTask(SyncAction):
-    """cendec's `AssignTask` pattern — per-agent `decision_maker`
-    instance.
-
-    When `CentralisationWrapper` invokes its child on each follower in
-    turn, each follower lazy-instantiates its own `decision_maker` and
-    reuses it on subsequent calls. The difference from autonomy_bt's
-    global `core.bt_nodes_common.AssignTask` is the *instance owner*:
-    autonomy_bt binds it to the BT node, while cendec binds it to the
-    agent.
-    """
-
-    def __init__(self, name, agent):
-        super().__init__(name, self._decide)
-
-    def _decide(self, agent, blackboard):
-        if not hasattr(agent, 'decision_maker') or agent.decision_maker is None:
-            agent.decision_maker = decision_making_class(agent, blackboard)
-        assigned_task_id = agent.decision_maker.decide(blackboard)
-        agent.assigned_task_id = assigned_task_id
-        blackboard['assigned_task_id'] = assigned_task_id
-        if assigned_task_id is None:
-            return Status.FAILURE
-        else:
-            return Status.SUCCESS
-
-
-class GatherLocalInfo(SyncAction):
-    """Mirrors cendec's GatherLocalInfo — appends each peer's
-    `message_to_share` to `messages_received` *without resetting* the
-    queue per tick.
-
-    autonomy_bt's default `local_message_receive` resets the queue at
-    the start of every tick (a fix for a mona-scenario regression).
-    Using that default here would break the leader → follower broadcast
-    handshake, since the follower's `ApplyCenTask` may not run on the
-    same tick the message arrives. We override locally to preserve
-    cendec's accumulate-then-pick-latest semantics.
-
-    `ApplyCenTask` picks the message with the largest timestamp out of
-    the accumulated queue, so unbounded accumulation is safe. (Memory
-    grows with simulation length, but the experiment horizon is short
-    enough to ignore.)
-    """
-
-    def __init__(self, name, agent):
-        super().__init__(name, self._local_sensing)
-
-    def _local_sensing(self, agent, blackboard):
-        # The student's dec plugins (CBBA / GRAPE / dec_hungarian) all
-        # expect `local_tasks_info` as a *list[Task]*, so emit a list
-        # directly. The cen plugins (CenGRAPE / Hungarian / SGA) have an
-        # `isinstance(..., dict)` guard at decide() entry, so a list
-        # passes through unchanged.
-        blackboard['local_tasks_info'] = agent.get_tasks_nearby(with_completed_task=False)
-
-        # Same as cendec's BaseAgent.local_message_receive — accumulate
-        # without resetting.
-        agent.agents_nearby = agent.get_agents_nearby()
-        for other_agent in agent.agents_nearby:
-            if other_agent.agent_id != agent.agent_id:
-                agent.receive_message(other_agent.message_to_share)
-
-        blackboard['local_agents_info'] = agent.agents_nearby
-        blackboard['messages_received'] = agent.messages_received
-        return Status.SUCCESS
-
-
 # =============================================================================
 # Decorator Node — the paper's central contribution
 # =============================================================================
@@ -356,24 +265,20 @@ class CentralisationWrapper(Node):
 
     async def run(self, agent, blackboard):
         agents = getattr(agent, 'agents_nearby', [])
-
         current_tick_allocations = {}
-        _blackboard = {}
-        _blackboard['local_tasks_info'] = agent.blackboard.get('local_tasks_info', {})
-        _blackboard['local_agents_info'] = agent.blackboard.get('local_agents_info', {})
-        _blackboard['messages_received'] = agent.blackboard.get('messages_received', [])
+        leader_msgs = agent.messages_received
 
         for target_agent in agents:
             if target_agent.type == 'Leader':
                 continue
-
-            child_status = await self.children[0].run(target_agent, _blackboard)
-
-            assigned_task_id = _blackboard.get('assigned_task_id', None)
-            if assigned_task_id is not None:
-                current_tick_allocations[target_agent.agent_id] = assigned_task_id
-            else:
-                current_tick_allocations[target_agent.agent_id] = None
+            # Give target the leader's peer view (minus self) so the dec plugin's `messages_received` read sees a consistent snapshot.
+            target_agent.messages_received = [
+                m for m in leader_msgs if m.get('agent_id') != target_agent.agent_id
+            ]
+            # Shallow-copy leader's blackboard so each target's BT execution has its own I/O scope.
+            target_blackboard = dict(blackboard)
+            await self.children[0].run(target_agent, target_blackboard)
+            current_tick_allocations[target_agent.agent_id] = target_blackboard.get('assigned_task_id')
 
         agent.reset_messages_received()
         consensus_reached = self._is_consensus_reached(current_tick_allocations)
@@ -391,8 +296,7 @@ class CentralisationWrapper(Node):
             return Status.RUNNING
 
     def _is_consensus_reached(self, current_allocations):
-        """Compare current vs previous tick's allocations to decide whether
-        consensus has been reached."""
+        """Consensus = current tick's allocations match previous tick's exactly."""
         if not self.previous_allocations:
             return False
 
