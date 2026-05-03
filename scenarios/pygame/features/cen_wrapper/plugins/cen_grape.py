@@ -5,15 +5,19 @@ Used as a *comparison baseline* against `CentralisationWrapper +
 AssignTask(GRAPE)`. Loaded by the `AssignCenTask` BT node via
 `decision_making.cen_plugin` in yaml — same plugin pattern as the
 dec-side plugins.
+
+NOTE: distance-based partition init / re-init (yaml options
+`initialize_partition` and `reinitialize_partition_on_completion`) are
+*intentionally* not honoured here, mirroring the shared
+`plugins/mrta/grape/grape.GRAPE` which also ignores those options. This
+keeps the centralised baseline algorithmically aligned with the dec
+plugin so the 3-way equivalence experiment is apples-to-apples.
 """
 import time
-import random
 
 from core.utils import config
 
 
-INITIALIZE_PARTITION = config['decision_making']['GRAPE']['initialize_partition']
-REINITIALIZE_PARTITION = config['decision_making']['GRAPE']['reinitialize_partition_on_completion']
 COST_WEIGHT_FACTOR = config['decision_making']['GRAPE']['cost_weight_factor']
 SOCIAL_INHIBITION_FACTOR = config['decision_making']['GRAPE']['social_inhibition_factor']
 
@@ -22,51 +26,44 @@ class CenGRAPE:
     """Centralised GRAPE — runs on the leader, computes a partition for all
     followers in one centralised pass, writes `task_allocations` to the
     blackboard.
+
+    Mirrors shared GRAPE's per-tick semantics so the 3-way comparison
+    (pure-dec / wrapper / cen_grape) reaches the same nash equilibrium under
+    a fully-connected network with deterministic mutex (`time_stamp = agent_id`):
+      1. Snapshot partition at start of each pass — no within-pass cascade.
+      2. Each agent independently proposes its max-utility switch.
+      3. Mutex: only the highest-agent_id switcher commits this pass.
+      4. Repeat until no agent wants to switch.
     """
 
     def __init__(self, agent):
         self.agent = agent  # leader
         self.partition = {}
-        self.initialised = False
         self.agents_state = {}
 
     def decide(self, blackboard):
-        _local_tasks_info = blackboard['local_tasks_info']
-        if isinstance(_local_tasks_info, dict):
-            _local_tasks_info = list(_local_tasks_info.values())
+        _local_tasks_info = list(blackboard['local_tasks_info'].values())
         _local_agents_info = blackboard['local_agents_info']
 
         self._init_partition_structure(_local_tasks_info)
         self._init_agents_state(_local_agents_info)
 
-        if not self.initialised and INITIALIZE_PARTITION == "Distance":
-            if _local_tasks_info and _local_agents_info:
-                self.partition = self.Initialise_partition_by_distance(_local_agents_info, _local_tasks_info)
-                self._sync_agents_state_from_partition(_local_agents_info)
-                self.initialised = True
-
-        self._drop_completed_tasks(_local_agents_info, _local_tasks_info)
-
         if len(_local_tasks_info) == 0:
             blackboard["task_allocations"] = {"timestamp": time.time()}
             return
 
-        satisfied_count, consensus_step = self._compute_cen_grape(_local_agents_info, _local_tasks_info)
+        self._compute_cen_grape(_local_agents_info, _local_tasks_info)
 
         task_allocations = {}
         for other_agent in _local_agents_info:
             agent_id = other_agent.agent_id
-            agent_state = self.agents_state.get(agent_id, {})
-            allocation = agent_state.get('allocation', None)
+            allocation = self.agents_state.get(agent_id, {}).get('allocation', None)
             task_allocations[agent_id] = allocation
-            try:
-                if allocation is not None:
-                    assigned_task = next((t for t in _local_tasks_info if t.task_id == allocation), None)
-                    other_agent.set_planned_tasks([assigned_task] if assigned_task else [])
-                else:
-                    other_agent.set_planned_tasks([])
-            except Exception:
-                pass
+            if allocation is not None:
+                assigned_task = next((t for t in _local_tasks_info if t.task_id == allocation), None)
+                other_agent.set_planned_tasks([assigned_task] if assigned_task else [])
+            else:
+                other_agent.set_planned_tasks([])
 
         task_allocations["timestamp"] = time.time()
         blackboard["task_allocations"] = task_allocations
@@ -80,134 +77,70 @@ class CenGRAPE:
         for other_agent in _local_agents_info:
             agent_id = other_agent.agent_id
             if agent_id not in self.agents_state:
-                self.agents_state[agent_id] = {
-                    'id': agent_id,
-                    'allocation': None,
-                    'iteration': 0,
-                    'time_stamp': random.uniform(0, 1),
-                    'satisfied_flag': False,
-                    'util': 0.0,
-                    'current_utilities': {}
-                }
-
-    def Initialise_partition_by_distance(self, agents_info, tasks_info):
-        partition = {task.task_id: set() for task in tasks_info}
-        for other_agent in agents_info:
-            task_distance = {
-                task.task_id: float('inf') if task.completed else (other_agent.position - task.position).length()
-                for task in tasks_info
-            }
-            if len(task_distance) > 0:
-                preferred_task_id = min(task_distance, key=task_distance.get)
-                partition.setdefault(preferred_task_id, set())
-                partition[preferred_task_id].add(other_agent.agent_id)
-        return partition
-
-    def _sync_agents_state_from_partition(self, _local_agents_info):
-        for other_agent in _local_agents_info:
-            agent_id = other_agent.agent_id
-            allocation = self.get_assigned_task_from_partition(agent_id)
-            if agent_id in self.agents_state:
-                self.agents_state[agent_id]['allocation'] = allocation
-
-    def get_assigned_task_from_partition(self, agent_id):
-        for task_id, coalition_members_id in self.partition.items():
-            if agent_id in coalition_members_id:
-                return task_id
-        return None
-
-    def _drop_completed_tasks(self, _local_agents_info, tasks_info):
-        for task in tasks_info:
-            if task.completed and task.task_id in self.partition:
-                affected_agents = list(self.partition[task.task_id])
-                if affected_agents:
-                    self.partition[task.task_id] = set()
-                    for agent_id in affected_agents:
-                        if agent_id in self.agents_state:
-                            self.agents_state[agent_id]['allocation'] = None
-                            self.agents_state[agent_id]['satisfied_flag'] = False
-                    if REINITIALIZE_PARTITION == "Distance":
-                        _affected_agents = [a for a in _local_agents_info if a.agent_id in affected_agents]
-                        __local_tasks_info = [t for t in tasks_info if not t.completed]
-                        if _affected_agents and __local_tasks_info:
-                            self._reInitialise_partition_for_agents(_affected_agents, __local_tasks_info)
-
-    def _reInitialise_partition_for_agents(self, agents_info, tasks_info):
-        for other_agent in agents_info:
-            task_distance = {
-                task.task_id: float('inf') if task.completed else (other_agent.position - task.position).length()
-                for task in tasks_info
-            }
-            if len(task_distance) > 0:
-                preferred_task_id = min(task_distance, key=task_distance.get)
-                self.partition.setdefault(preferred_task_id, set())
-                self.partition[preferred_task_id].add(other_agent.agent_id)
-                if other_agent.agent_id in self.agents_state:
-                    self.agents_state[other_agent.agent_id]['allocation'] = preferred_task_id
+                self.agents_state[agent_id] = {'allocation': None}
 
     def _compute_cen_grape(self, _local_agents_info, _local_tasks_info):
-        num_agents = len(_local_agents_info)
-        max_iterations = num_agents * len(_local_tasks_info) * 2
-        satisfied_agents_count = 0
         consensus_step = 0
 
-        while satisfied_agents_count < num_agents:
-            satisfied_agents_count = 0
+        while True:
+            # Phase 1: snapshot partition — every agent in this pass evaluates
+            # against the same view (no cascade from earlier agents' switches).
+            partition_snapshot = {k: set(v) for k, v in self.partition.items()}
+
+            # Phase 2: each agent independently proposes a max-utility switch.
+            proposals = []  # [(agent_id, current_task_id, max_task_id), ...]
             for other_agent in _local_agents_info:
                 agent_id = other_agent.agent_id
                 agent_state = self.agents_state.get(agent_id)
                 if agent_state is None:
                     continue
                 current_task_id = agent_state['allocation']
-                max_task_id, max_utility, current_utilities = self.find_max_utility_task(other_agent, _local_tasks_info)
-                agent_state['current_utilities'] = current_utilities
-                if max_utility == float('-inf'):
-                    agent_state['satisfied_flag'] = True
-                    satisfied_agents_count += 1
-                    continue
-                if current_task_id == max_task_id:
-                    agent_state['satisfied_flag'] = True
-                    agent_state['util'] = max_utility
-                    satisfied_agents_count += 1
-                else:
-                    agent_state['satisfied_flag'] = False
-                    agent_state['time_stamp'] = random.uniform(0, 1)
-                    agent_state['iteration'] += 1
-                    self.discard_agent_from_coalition(agent_id, current_task_id)
-                    self.partition.setdefault(max_task_id, set())
-                    self.partition[max_task_id].add(agent_id)
-                    agent_state['allocation'] = max_task_id
-                    agent_state['util'] = 0.0
+                max_task_id, _ = self.find_max_utility_task(
+                    other_agent, _local_tasks_info, partition=partition_snapshot,
+                )
+                if current_task_id != max_task_id:
+                    proposals.append((agent_id, current_task_id, max_task_id))
+
+            if not proposals:
+                break  # all agents satisfied with current allocation
+
+            # Phase 3: mutex — only the highest-agent_id switcher commits.
+            # Analog of shared GRAPE's d-mutex under `time_stamp = agent_id`:
+            # at equal evolution_number, the highest agent_id wins next tick.
+            winner_id, winner_current, winner_max = max(proposals, key=lambda p: p[0])
+            self.discard_agent_from_coalition(winner_id, winner_current)
+            self.partition.setdefault(winner_max, set())
+            self.partition[winner_max].add(winner_id)
+            self.agents_state[winner_id]['allocation'] = winner_max
+
             consensus_step += 1
-            if consensus_step > max_iterations:
-                break
 
-        return satisfied_agents_count, consensus_step
+        return consensus_step
 
-    def find_max_utility_task(self, other_agent, tasks_info):
-        current_utilities = {}
-        for task in tasks_info:
-            if task.completed:
-                current_utilities[task.task_id] = float('-inf')
-            else:
-                current_utilities[task.task_id] = self.compute_utility(other_agent, task)
-        if not current_utilities:
-            return None, float('-inf'), {}
-        max_task_id = max(current_utilities, key=current_utilities.get)
-        max_utility = current_utilities[max_task_id]
-        return max_task_id, max_utility, current_utilities
+    def find_max_utility_task(self, other_agent, tasks_info, partition=None):
+        _current_utilities = {
+            task.task_id: self.compute_utility(other_agent, task, partition)
+            for task in tasks_info
+        }
 
-    def compute_utility(self, other_agent, task):
+        _max_task_id = max(_current_utilities, key=_current_utilities.get)
+        _max_utility = _current_utilities[_max_task_id]
+
+        return _max_task_id, _max_utility
+
+    def compute_utility(self, other_agent, task, partition=None):
         if task is None:
             return float('-inf')
-        self.partition.setdefault(task.task_id, set())
-        num_collaborator = len(self.partition[task.task_id])
-        if other_agent.agent_id not in self.partition[task.task_id]:
+
+        if partition is None:
+            partition = self.partition
+        partition.setdefault(task.task_id, set())
+        num_collaborator = len(partition[task.task_id])
+        if other_agent.agent_id not in partition[task.task_id]:
             num_collaborator += 1
-        if num_collaborator == 0:
-            num_collaborator = 1
+
         distance = (other_agent.position - task.position).length()
-        utility = task.amount / num_collaborator - COST_WEIGHT_FACTOR * distance * (num_collaborator ** SOCIAL_INHIBITION_FACTOR)
+        utility = task.amount / (num_collaborator) - COST_WEIGHT_FACTOR * distance * (num_collaborator ** SOCIAL_INHIBITION_FACTOR)
         return utility
 
     def discard_agent_from_coalition(self, agent_id, task_id):
