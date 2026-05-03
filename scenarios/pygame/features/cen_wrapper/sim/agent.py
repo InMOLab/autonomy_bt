@@ -12,7 +12,6 @@ its `type` config block and creates its tree before BTRunner.initialize
 runs (BTRunner skips if `agent.tree` is already set).
 """
 import os
-import math
 import pygame
 
 from core.utils import config
@@ -30,26 +29,6 @@ class Agent(BaseAgent):
         super().__init__(agent_id, position, tasks_info)
         self.work_rate = work_rate
         self.task_amount_done = 0.0
-
-    def draw(self, screen):
-        size = 10
-        angle = self.rotation
-
-        p1 = pygame.Vector2(
-            self.position.x + size * math.cos(angle),
-            self.position.y + size * math.sin(angle),
-        )
-        p2 = pygame.Vector2(
-            self.position.x + size * math.cos(angle + 2.5),
-            self.position.y + size * math.sin(angle + 2.5),
-        )
-        p3 = pygame.Vector2(
-            self.position.x + size * math.cos(angle - 2.5),
-            self.position.y + size * math.sin(angle - 2.5),
-        )
-
-        self.update_color()
-        pygame.draw.polygon(screen, self.color, [p1, p2, p3])
 
     def update_color(self):
         self.color = task_colors.get(

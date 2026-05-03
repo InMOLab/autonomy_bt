@@ -195,24 +195,7 @@ class SGA:
         except IndexError as e:
             print(f"Error: {e}")     
 
-    # def calculate_score_along_path(self, agent, path):
-    #     """
-    #     Compute S^{p_i} in Eqn (11) in the CBBA paper
-    #     """
-
-    #     current_position = agent.position
-    #     expected_reward_from_task = 0
-    #     distance_to_next_task_from_start = 0
-    #     for task in path:
-    #         next_position = pygame.Vector2(task.position)
-    #         distance_to_next_task_from_start += current_position.distance_to(next_position)
-    #         # Time-discounted reward
-    #         expected_reward_from_task += LAMBDA**(distance_to_next_task_from_start/agent.max_speed + task.amount/agent.work_rate) #*task.amount
-    #         current_position = next_position
-
-    #     return expected_reward_from_task
-
-    def calculate_score_along_path(self, agent, path): 
+    def calculate_score_along_path(self, agent, path):
         """
         Compute S^{p_i} in Eqn (11) in the CBBA paper 
         """

@@ -38,9 +38,7 @@ class Hungarian:
 
     def decide(self, blackboard):
         _local_tasks_info = blackboard['local_tasks_info']
-
         if isinstance(_local_tasks_info, dict):
-
             _local_tasks_info = list(_local_tasks_info.values())
         _local_agents_info = blackboard['local_agents_info']
 
@@ -60,33 +58,6 @@ class Hungarian:
             self.agent_label = np.min(self.weights, axis=1)
             self.task_label = np.zeros(self.p, dtype=float)
             self.hungarian(max_iter=100)
-
-            print("\n" + "="*60)
-            print("HUNGARIAN ALGORITHM RESULT")
-            print("="*60)
-            print(f"\n[INFO] Agents: {self.num_original_agents}, Tasks: {self.num_original_tasks}")
-            print(f"[INFO] Matrix size: {self.r} x {self.p}")
-            print("\n[WEIGHTS MATRIX] (cost = 1/reward, inf = dummy)")
-            header = "          "
-            for j in range(self.p):
-                task_id = self.task_idx_to_id.get(j, f"T{j}")
-                header += f"{str(task_id)[:8]:>10}"
-            print(header)
-            for i in range(self.r):
-                agent_id = self.agent_idx_to_id.get(i, f"A{i}")
-                row_str = f"{str(agent_id)[:8]:<10}"
-                for j in range(self.p):
-                    val = self.weights[i][j]
-                    if np.isinf(val):
-                        row_str += f"{'inf':>10}"
-                    else:
-                        row_str += f"{val:>10.4f}"
-                print(row_str)
-            print("\n[ASSIGNMENT RESULT]")
-            for agent_id, task_obj in self.assigned_tasks.items():
-                task_id = task_obj.task_id if task_obj else None
-                print(f"  Agent {agent_id} -> Task {task_id}")
-            print("="*60 + "\n")
 
         task_allocations = {}
         for _agent in _local_agents_info:
