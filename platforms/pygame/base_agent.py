@@ -20,6 +20,9 @@ sampling_time = 1.0 / config['simulation']['sampling_freq']  # in seconds
 
 
 class BaseAgent:
+    # Set by `BTRunner.step` at the start of each tick to eliminate within-tick cascade from the BTRunner's sequential agent loop.
+    _tick_message_snapshot = None
+
     def __init__(self, agent_id, position, tasks_info):
         self.agent_id = agent_id
         self.type = None
@@ -128,20 +131,18 @@ class BaseAgent:
 
     def broadcast_message(self, to_all = False):
         if to_all:
-            agents_nearby = getattr(self, "agents_info", []) # Global agents
+            agents_nearby = [a for a in getattr(self, "agents_info", []) if a.agent_id != self.agent_id]
         else:
-            agents_nearby = getattr(self, "agents_nearby", []) # Local agents
+            agents_nearby = getattr(self, "agents_nearby", [])  # already excludes self
         for other_agent in agents_nearby:
-            if other_agent.agent_id != self.agent_id:
-                other_agent.receive_message(self.message_to_share)
+            other_agent.receive_message(self.message_to_share)
 
     def local_message_receive(self):
         self.reset_messages_received()  # Clear previous messages
-        self.agents_nearby = self.get_agents_nearby()
+        self.agents_nearby = self.get_agents_nearby()  # already excludes self
+        snapshot = type(self)._tick_message_snapshot  # Read from BTRunner's tick-start snapshot (not live peer state) to avoid cascade.
         for other_agent in self.agents_nearby:
-            if other_agent.agent_id != self.agent_id:
-                self.receive_message(other_agent.message_to_share)
-                # other_agent.receive_message(self.message_to_share)
+            self.receive_message(snapshot[other_agent.agent_id])
 
         return self.agents_nearby
 
@@ -256,14 +257,14 @@ class BaseAgent:
         _communication_radius = self.communication_radius if radius is None else radius
         if _communication_radius > 0:
             communication_radius_squared = _communication_radius ** 2
-            local_agents_info = [
+            return [
                 other_agent
                 for other_agent in self.agents_info
-                if (self.position - other_agent.position).length_squared() <= communication_radius_squared and other_agent.agent_id !=self.agent_id
+                if other_agent.agent_id != self.agent_id
+                and (self.position - other_agent.position).length_squared() <= communication_radius_squared
             ]
-        else:
-            local_agents_info = self.agents_info
-        return local_agents_info
+        # radius == 0 → global, but still exclude self.
+        return [a for a in self.agents_info if a.agent_id != self.agent_id]
 
 
     def get_tasks_nearby(self, radius = None, with_completed_task = True):

@@ -42,6 +42,22 @@ def msg_deserialize_hook(d):
     return AttrDict(d)
 
 
+def snapshot_message(msg):
+    """Recursively copy dict / set / list (the mutable containers that
+    plugins mutate); leave custom objects (Agent / Task — which carry
+    pygame.font.Font and are not deep-copyable, but plugins never mutate
+    them anyway) as shared references.
+    """
+    if isinstance(msg, dict):
+        return {k: snapshot_message(v) for k, v in msg.items()}
+    if isinstance(msg, set):
+        return {snapshot_message(v) for v in msg}
+    if isinstance(msg, (list, tuple)):
+        copied = [snapshot_message(v) for v in msg]
+        return type(msg)(copied)
+    return msg
+
+
 # Pre-render static elements
 def pre_render_text(text, font_size, color):
     font = pygame.font.Font(None, font_size)

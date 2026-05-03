@@ -1,5 +1,9 @@
 import os
 
+from platforms.pygame.base_agent import BaseAgent
+from platforms.pygame.utils_pygame import snapshot_message
+
+
 class BTRunner:
     def __init__(self, config):
         self.config = config
@@ -22,7 +26,11 @@ class BTRunner:
 
 
     async def step(self):
-        # Main bt_runner loop logic
+        # Freeze peer-message view at tick start so all agents see the same snapshot — the sequential loop below would otherwise cascade (agent N+1 reading agent N's just-updated message).
+        BaseAgent._tick_message_snapshot = {
+            agent.agent_id: snapshot_message(agent.message_to_share)
+            for agent in self.agents
+        }
         for agent in self.agents:
             await agent.run_tree()
 
