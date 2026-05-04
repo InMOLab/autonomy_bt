@@ -177,7 +177,7 @@ class Sim(BaseSim):
         """Auto-stop static-mode runs once Follower assignments stabilise (wall-clock)."""
         WARMUP_SEC = 1.0
         STABILITY_SEC = 1.0
-        TIMEOUT_SEC = 5.0
+        TIMEOUT_SEC = self.config['simulation'].get('static_timeout_sec', 5.0)
 
         now = time.time()
         elapsed_real = now - self.static_start_real_time
