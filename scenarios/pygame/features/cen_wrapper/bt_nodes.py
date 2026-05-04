@@ -262,23 +262,49 @@ class CentralisationWrapper(Node):
         self.type = "CentralisationWrapper"
         self.children = [child]
         self.previous_allocations = {}
+        # Leader-side per-follower proxies. Each proxy carries its own decision_maker
+        # (attached lazily by the child AssignTask on first invocation), which holds
+        # the per-follower persistent state across BT ticks.
+        self.proxies = {}  # follower_id -> FollowerProxy
+        # Leader-side cache of each proxy's last-tick `message_to_share`. In real
+        # distributed deployment this corresponds to "the last outbox message the
+        # leader received from each follower"; here it's the last output of the
+        # algorithm running on the proxy. Used to populate the next tick's
+        # `proxy.messages_received` so inter-iteration consensus propagates.
+        self.proxy_outboxes = {}  # follower_id -> dict (last message_to_share)
 
     async def run(self, agent, blackboard):
+        from scenarios.pygame.features.cen_wrapper.plugins.follower_proxy import FollowerProxy
+        import pygame
         agents = getattr(agent, 'agents_nearby', [])
         current_tick_allocations = {}
-        leader_msgs = agent.messages_received
+        # Freeze the outbox cache at tick start so all per-target invocations see the
+        # same peer-message view (analog of BTRunner's tick-start snapshot — required
+        # to avoid intra-tick cascade where target N+1 reads target N's just-updated outbox).
+        outbox_snapshot = dict(self.proxy_outboxes)
 
         for target_agent in agents:
             if target_agent.type == 'Leader':
                 continue
-            # Give target the leader's peer view (minus self) so the dec plugin's `messages_received` read sees a consistent snapshot.
-            target_agent.messages_received = [
-                m for m in leader_msgs if m.get('agent_id') != target_agent.agent_id
+            tid = target_agent.agent_id
+            # Lazy create proxy; decision_maker is attached on first AssignTask invocation.
+            if tid not in self.proxies:
+                self.proxies[tid] = FollowerProxy(tid, target_agent.position)
+            proxy = self.proxies[tid]
+            # Refresh per-tick fields (in pygame sim: copy from live target; in ROS2 deployment: populate from received topics).
+            proxy.position = pygame.Vector2(target_agent.position)
+            # Build messages_received from the frozen outbox snapshot (excluding self).
+            proxy.messages_received = [
+                msg for other_tid, msg in outbox_snapshot.items()
+                if other_tid != tid and msg
             ]
-            # Shallow-copy leader's blackboard so each target's BT execution has its own I/O scope.
+            proxy.message_to_share = {}
+            # Shallow-copy leader's blackboard so each per-target invocation has its own I/O scope.
             target_blackboard = dict(blackboard)
-            await self.children[0].run(target_agent, target_blackboard)
-            current_tick_allocations[target_agent.agent_id] = target_blackboard.get('assigned_task_id')
+            await self.children[0].run(proxy, target_blackboard)
+            current_tick_allocations[tid] = target_blackboard.get('assigned_task_id')
+            # Cache this proxy's outbox — visible only on the *next* tick's iteration.
+            self.proxy_outboxes[tid] = dict(proxy.message_to_share) if proxy.message_to_share else {}
 
         agent.reset_messages_received()
         consensus_reached = self._is_consensus_reached(current_tick_allocations)
