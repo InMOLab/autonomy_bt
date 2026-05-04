@@ -202,7 +202,9 @@ scenarios/pygame/features/cen_wrapper/
 │   ├── grape.py                        # dec GRAPE subclass — overrides time_stamp hooks for deterministic d-mutex (3-way equivalence)
 │   ├── sga.py                          # cen Sequential Greedy — used by AssignCenTask via `decision_making.cen_plugin`
 │   ├── cen_grape.py                    # cen GRAPE
-│   └── hungarian.py                    # cen Hungarian
+│   ├── hungarian.py                    # cen Hungarian — scipy.linear_sum_assignment, deterministic (matches dec_hungarian's cost formula)
+│   └── archived/
+│       └── hungarian.py                # original hand-rolled bipartite matching (cost formula aligned with main); not loaded by any yaml
 ├── sim/
 │   ├── sim.py                          # Sim(BaseSim) — leader toggle, static-mode termination, custom CSV saver
 │   ├── agent.py                        # Agent + generate_agents (per-type BT XML pattern)
