@@ -2,26 +2,34 @@ scenario:
   environment: scenarios.pygame.features.cen_wrapper
 
 decision_making:
-  plugin: plugins.mrta.hungarian.dec_hungarian.DistributedHungarian
-  Hungarian:
-    task_reward_discount_factor: 0.999 
-    epsilon: 1e-10
-    dummy_cost: 0.0
+  plugin: scenarios.pygame.features.cen_wrapper.plugins.grape.GRAPE
+  GRAPE:
+    cost_weight_factor: 1.0
+    social_inhibition_factor: 0
+    initialize_partition: Distance # Options: None; Distance      
+    reinitialize_partition_on_completion: Distance # Options: None; Distance; 
+    local_convergence: True
 
-case_name: CENWRAPPER HUNGARIAN
-setup: HUNGARIAN_N12_M12
+case_name: GRAPE (partial)
+setup: GRAPE_N40_M10_PARTIAL
 agents:
+  # ── cen_wrapper communication semantics ──────────────────────────────
+  # Leader.communication_radius   → leader↔follower broadcast reach
+  # Follower.communication_radius → follower↔follower mesh range
+  # (0 == global for both; implemented via Agent.get_agents_nearby override
+  #  in scenarios/.../cen_wrapper/sim/agent.py)
+  # ─────────────────────────────────────────────────────────────────────
   types:
     Leader:
       behavior_tree_xml: bt_leader_wrapper.xml
-      quantity: 1
-      communication_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the other agents
+      quantity: 0
+      communication_radius: 500 # 0 represents "global", meaning that each agent can access to the information of all the other agents
       situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
     Follower:
       behavior_tree_xml: bt_follower.xml
-      quantity: 12
+      quantity: 40
       communication_radius: 150 # 0 represents "global", meaning that each agent can access to the information of all the other agents
-      situation_awareness_radius: 1000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
+      situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
   locations:
     x_min: 0
     x_max: 1400
@@ -37,7 +45,7 @@ agents:
   communication_time_endurance : 2.0 # sec
 
 tasks:
-  quantity: 12
+  quantity: 10
   locations:
     x_min: 0
     x_max: 1400
@@ -46,13 +54,13 @@ tasks:
     non_overlap_radius: 0
   threshold_done_by_arrival: 10.0
   amounts:  # Added amounts range for tasks
-    min: 6.0
-    max: 60.0      
+    min: 200.0
+    max: 300.0      
   dynamic_task_generation:
     enabled: False
     interval_seconds: 2000
-    max_generations: 12
-    tasks_per_generation: 1
+    max_generations: 3
+    tasks_per_generation: 25
 
 simulation:
   message_snapshot: true   # parallel-execution emulation (needed for cen_wrapper 3-way equivalence)
@@ -70,9 +78,9 @@ simulation:
   rendering_mode: Screen  # Options: Screen; Terminal; None
   rendering_options: # Only works if `rendering_mode` is `Screen`
     agent_tail: True
-    agent_communication_topology: False
+    agent_communication_topology: True
     leader_communication_radius_circle: True
-    leader_communication_topology: False
+    leader_communication_topology: True
     agent_situation_awareness_circle: False
     agent_communication_radius_circle: False
     agent_id: True

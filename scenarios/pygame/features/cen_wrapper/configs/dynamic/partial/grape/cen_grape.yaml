@@ -3,6 +3,7 @@ scenario:
 
 decision_making:
   plugin: scenarios.pygame.features.cen_wrapper.plugins.grape.GRAPE
+  cen_plugin: scenarios.pygame.features.cen_wrapper.plugins.cen_grape.CenGRAPE
   GRAPE:
     cost_weight_factor: 1.0
     social_inhibition_factor: 0
@@ -10,8 +11,8 @@ decision_making:
     reinitialize_partition_on_completion: Distance # Options: None; Distance; 
     local_convergence: True
 
-case_name: CENWRAPPER GRAPE
-setup: GRAPE_N40_M10
+case_name: CEN GRAPE (partial)
+setup: GRAPE_N40_M10_PARTIAL
 agents:
   # ── cen_wrapper communication semantics ──────────────────────────────
   # Leader.communication_radius   → leader↔follower broadcast reach
@@ -21,15 +22,15 @@ agents:
   # ─────────────────────────────────────────────────────────────────────
   types:
     Leader:
-      behavior_tree_xml: bt_leader_wrapper.xml
+      behavior_tree_xml: bt_leader.xml
       quantity: 1
-      communication_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the other agents
+      communication_radius: 500 # 0 represents "global", meaning that each agent can access to the information of all the other agents
       situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
     Follower:
-      behavior_tree_xml: bt_follower_static.xml
+      behavior_tree_xml: bt_follower.xml
       quantity: 40
-      communication_radius: 2000 # fully connected (Proposition 1 등가성 가정 — 통일)
-      situation_awareness_radius: 2000 # 모든 task 를 인식 (등가성 비교 fair 화)
+      communication_radius: 150 # 0 represents "global", meaning that each agent can access to the information of all the other agents
+      situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
   locations:
     x_min: 0
     x_max: 1400
@@ -78,7 +79,7 @@ simulation:
   rendering_mode: Screen  # Options: Screen; Terminal; None
   rendering_options: # Only works if `rendering_mode` is `Screen`
     agent_tail: True
-    agent_communication_topology: False
+    agent_communication_topology: True
     leader_communication_radius_circle: True
     leader_communication_topology: True
     agent_situation_awareness_circle: False

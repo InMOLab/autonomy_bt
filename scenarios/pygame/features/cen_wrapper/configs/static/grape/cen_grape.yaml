@@ -6,7 +6,7 @@ decision_making:
   cen_plugin: scenarios.pygame.features.cen_wrapper.plugins.cen_grape.CenGRAPE
   GRAPE:
     cost_weight_factor: 1.0
-    social_inhibition_factor: 100
+    social_inhibition_factor: 0
     initialize_partition: Distance # Options: None; Distance      
     reinitialize_partition_on_completion: Distance # Options: None; Distance; 
     local_convergence: True
@@ -14,6 +14,12 @@ decision_making:
 case_name: CEN GRAPE
 setup: GRAPE_N40_M10
 agents:
+  # ── cen_wrapper communication semantics ──────────────────────────────
+  # Leader.communication_radius   → leader↔follower broadcast reach
+  # Follower.communication_radius → follower↔follower mesh range
+  # (0 == global for both; implemented via Agent.get_agents_nearby override
+  #  in scenarios/.../cen_wrapper/sim/agent.py)
+  # ─────────────────────────────────────────────────────────────────────
   types:
     Leader:
       behavior_tree_xml: bt_leader.xml

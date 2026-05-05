@@ -12,6 +12,12 @@ decision_making:
 case_name: CBBA
 setup: CBBA_N10_M50_MT5
 agents:
+  # ── cen_wrapper communication semantics ──────────────────────────────
+  # Leader.communication_radius   → leader↔follower broadcast reach
+  # Follower.communication_radius → follower↔follower mesh range
+  # (0 == global for both; implemented via Agent.get_agents_nearby override
+  #  in scenarios/.../cen_wrapper/sim/agent.py)
+  # ─────────────────────────────────────────────────────────────────────
   types:
     Leader:
       behavior_tree_xml: bt_leader.xml
