@@ -175,6 +175,8 @@ class Sim(BaseSim):
 
     def _check_static_termination(self):
         """Auto-stop static-mode runs once Follower assignments stabilise (wall-clock)."""
+        if not self.config['simulation'].get('static_auto_terminate', True):
+            return  # opt-out for visualization / interactive inspection
         WARMUP_SEC = 1.0
         STABILITY_SEC = 1.0
         TIMEOUT_SEC = self.config['simulation'].get('static_timeout_sec', 5.0)

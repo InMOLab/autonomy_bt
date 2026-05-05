@@ -1,5 +1,6 @@
 import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = "0,30"  # top-left corner
+import time
 import pygame
 import importlib
 from platforms.pygame.utils_pygame import pre_render_text, ResultSaver
@@ -85,6 +86,8 @@ class BaseSim:
 
         # Initialize simulation time
         self.simulation_time = 0.0
+        self.tick_count = 0
+        self.wall_clock_start = time.perf_counter()
         self.last_print_time = 0.0   # Variable to track the last time tasks_left was printed
 
         # Initialize dynamic task generation time
@@ -118,6 +121,7 @@ class BaseSim:
             agent.update()
         # Status retrieval
         self.simulation_time += self.sampling_time
+        self.tick_count += 1
         self.tasks_left = sum(1 for task in self.tasks if not task.completed)
         if self.tasks_left == 0:
             self.mission_completed = not self.generation_enabled or self.generation_count == self.max_generations
@@ -172,8 +176,10 @@ class BaseSim:
 
 
     def draw_status_overlay(self):
-        task_time_text = pre_render_text(f'Tasks left: {self.tasks_left}; Time: {self.simulation_time:.2f}s', 36, (0, 0, 0))
-        self.screen.blit(task_time_text, (self.screen_width - 350, 20))
+        wall = time.perf_counter() - self.wall_clock_start
+        text = f'Tick: {self.tick_count}  Wall: {wall:.1f}s  Tasks left: {self.tasks_left}'
+        task_time_text = pre_render_text(text, 36, (0, 0, 0))
+        self.screen.blit(task_time_text, (self.screen_width - 470, 20))
 
     def render(self):
         if self.rendering_mode == "Screen" and self.screen:
