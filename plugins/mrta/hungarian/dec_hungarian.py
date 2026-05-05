@@ -37,7 +37,6 @@ class DistributedHungarian:
         
         # Assignment tracking
         self.assigned_task = None
-        self.completed_tasks = set()
         self.gamma = 0  # Countervalue γ^i (논문의 Build_Latest_Graph 수렴 추적)
 
         # Init message
@@ -56,8 +55,6 @@ class DistributedHungarian:
         
         # Handle completed task
         self.assigned_task = _local_tasks_info.get(previous_assigned_task_id)        
-        if self.assigned_task is None and previous_assigned_task_id is not None: 
-            self._on_task_completed(previous_assigned_task_id)
         
         
         # Continuous Monitoring: Detect cluster changes
@@ -85,10 +82,6 @@ class DistributedHungarian:
         
         return self.assigned_task.task_id if self.assigned_task else None
     
-    def _on_task_completed(self, task_id):
-        self.completed_tasks.add(task_id)
-        self._update_visualization()
-
     # def _initialize(self, tasks):
     #     self.R = [self.agent]
     #     self.P = sorted(tasks.values(), key=lambda t: t.task_id)
@@ -201,21 +194,18 @@ class DistributedHungarian:
         for t in local_tasks.values():
             current_p_map[t.task_id] = t
 
-        # Handle Completed Tasks + tasks_info (merged loop)
+        # Handle tasks_info from reachable peers
         for msg in valid_msgs:
             if msg['agent_id'] not in new_R_ids:
                 continue
-            for tid in msg.get('completed_tasks', set()):
-                if tid not in self.completed_tasks:
-                    self.completed_tasks.add(tid)
             for t in msg.get('tasks_info', []):
                 tid = getattr(t, 'task_id', t.get('task_id') if isinstance(t, dict) else None)
-                if tid is not None and tid not in self.completed_tasks:
+                if tid is not None:
                     observed_task_ids.add(tid)
                     current_p_map[tid] = t
 
         # Filter P
-        self.P = [t for tid, t in current_p_map.items() if tid in observed_task_ids and tid not in self.completed_tasks]
+        self.P = [t for tid, t in current_p_map.items() if tid in observed_task_ids]
         self.P.sort(key=lambda t: getattr(t, 'task_id', t.get('task_id') if isinstance(t, dict) else None))
 
         # Lead Robot Selection via γ (논문의 Build_Latest_Graph)
@@ -250,7 +240,6 @@ class DistributedHungarian:
                                        'position': self.agent.position,
                                        'agents_info': self.R, # Send Full Agent Objects (Data Payload)
                                        'tasks_info': self.P, # Send Full Task Objects (Data Payload)
-                                       'completed_tasks': self.completed_tasks,
                                        'assigned_task_id': self.assigned_task.task_id if self.assigned_task else None,
                                        'gamma': self.gamma,  # Countervalue for lead robot selection
                                        }

@@ -53,12 +53,22 @@ class CBBA:
 
         local_tasks_info = blackboard['local_tasks_info']
 
-        # Check if the existing task is done or not available anymore (e.g., completed by others, disappeared due to dynamic environment, etc.)            
-        self.assigned_task = local_tasks_info.get(previous_assigned_task_id)        
-        if self.assigned_task is None and previous_assigned_task_id is not None: 
+        # Check if the existing task is done or not available anymore (e.g., completed by others, disappeared due to dynamic environment, etc.)
+        self.assigned_task = local_tasks_info.get(previous_assigned_task_id)
+        if self.assigned_task is None and previous_assigned_task_id is not None:
             if len(self.path) != 0 and self.path[0].task_id == previous_assigned_task_id:
                 completed_task_id = self.path.pop(0).task_id
                 self.bundle.remove(completed_task_id)
+
+        # Also drop any path[1:] entries that vanished from local_tasks_info
+        # (the path[0] case is already handled above).
+        gone_tids = [tid for tid in self.bundle if tid not in local_tasks_info]
+        for _tid in gone_tids:
+            self.bundle.remove(_tid)
+            self.path = [t for t in self.path if t.task_id != _tid]
+            if self.z.get(_tid) == self.agent.agent_id:
+                self.y[_tid] = float('-inf')
+                self.z[_tid] = None
 
         # Give up the decision-making process if there is no task nearby 
         if len(local_tasks_info) == 0 and len(self.bundle) == 0: 
