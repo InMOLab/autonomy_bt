@@ -30,6 +30,39 @@ class Agent(BaseAgent):
         self.work_rate = work_rate
         self.task_amount_done = 0.0
 
+    def get_agents_nearby(self, radius=None):
+        """Override: leader-follower visibility is governed strictly by the
+        LEADER's `communication_radius` (the broadcast reach), independent
+        of the follower's own mesh radius.
+
+        Rationale: pygame's `BaseAgent.get_agents_nearby()` is symmetric —
+        it filters by the receiver's own `communication_radius`. That's
+        wrong both ways for cen_wrapper's asymmetric leader→follower
+        broadcast:
+          - if `leader_radius > follower_radius` the follower wouldn't
+            pull a leader that's in fact broadcasting to it (under-pull),
+          - if `leader_radius < follower_radius` the follower would pull
+            a leader that's actually out of broadcast (over-pull),
+            polluting the dec follower's view with a peer it shouldn't
+            consider.
+
+        Fix: strip the leader from the base result, then re-add iff this
+        follower lies within the leader's broadcast.
+        """
+        nearby = super().get_agents_nearby(radius)
+        if self.type != 'Follower':
+            return nearby
+        nearby = [a for a in nearby if getattr(a, 'type', None) != 'Leader']
+        for other in getattr(self, 'agents_info', []):
+            if getattr(other, 'type', None) != 'Leader':
+                continue
+            if other.agent_id == self.agent_id:
+                continue
+            leader_radius = getattr(other, 'communication_radius', 0)
+            if leader_radius <= 0 or self.position.distance_to(other.position) <= leader_radius:
+                nearby.append(other)
+        return nearby
+
     def update_color(self):
         self.color = task_colors.get(
             self.assigned_task_id, (20, 20, 20)
