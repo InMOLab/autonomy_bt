@@ -38,10 +38,10 @@ python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/<MODE>/<A
 python3 main.py --config scenarios/pygame/features/cen_wrapper/configs/dynamic/global/grape/cenwrapper_grape.yaml
 ```
 
-Run the automated 9-yaml equivalence check (static mode):
+Run the automated 9-yaml equivalence check (Exp 1, static mode):
 ```bash
-python3 scenarios/pygame/features/cen_wrapper/test/static_smoke.py             # 1 seed (default)
-python3 scenarios/pygame/features/cen_wrapper/test/static_smoke.py --seeds=4   # rigorous (4 seeds)
+python3 scenarios/pygame/features/cen_wrapper/experiments/scripts/exp1_static_equivalence.py             # 1 seed (default)
+python3 scenarios/pygame/features/cen_wrapper/experiments/scripts/exp1_static_equivalence.py --seeds=4   # rigorous (4 seeds)
 ```
 
 Interactive keys during a run: `L` toggles the leader (despawn / respawn);
@@ -53,7 +53,10 @@ Interactive keys during a run: `L` toggles the leader (despawn / respawn);
 |---|---|
 | `bt_leader.xml`          | leader, baseline mode — `AssignCenTask` loads `cen_plugin` (`SGA` / `CenGRAPE` / `Hungarian`) |
 | `bt_leader_wrapper.xml`  | leader, wrapper mode — `CentralisationWrapper(AssignTask)` simulates the dec plugin per follower |
-| `bt_follower_static.xml` | follower, static mode — Halt once assigned |
+| `bt_follower_static.xml` | follower, static mode — Halt once assigned (Exp 3 baseline: Relay OFF, Forward OFF) |
+| `bt_follower_static_relay_only.xml`   | static, Exp 3 ablation — Relay ON, Forward OFF |
+| `bt_follower_static_forward_only.xml` | static, Exp 3 ablation — Relay OFF, Forward ON |
+| `bt_follower_static_relay.xml`        | static, Exp 3 full — Relay ON, Forward ON (paper proposal) |
 | `bt_follower.xml`        | follower, `dynamic/partial` — local `IsTaskAssigned` gate then movement |
 | `bt_follower_global.xml` | follower, `dynamic/global` — `IsAllocationConverged` global gate before motion (fair cross-mode comparison) |
 

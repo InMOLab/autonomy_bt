@@ -1,9 +1,17 @@
-"""Smoke-test 9 static yamls — record final assigned_task_id signature.
-Compare across {pure-dec, cen-wrapper, cen-baseline} per algorithm group.
+"""Exp 1 — Static Equivalence (Sec III of the paper).
 
-Usage:
-  python _static_smoke.py            # default: 1 seed (random_seed=1)
-  python _static_smoke.py --seeds=4  # rigorous: 4 seeds (1, 2, 3, 4)
+For each (algo, mode) ∈ {CBBA, GRAPE, Hungarian} × {pure-dec, cen-wrapper,
+cen-baseline}, runs the *static* yaml and records each follower's final
+`planned_tasks[0].task_id` (or `assigned_task_id`). The 3-mode signatures
+must match within each algorithm group — that is the byte-equivalent
+verification of Proposition 1 (allocation equivalence).
+
+Comm radius is fully connected (= 2000) in every static yaml so
+positional sampling cannot diverge between modes.
+
+Usage (from project root, autonomy_bt/):
+  python scenarios/pygame/features/cen_wrapper/experiments/scripts/exp1_static_equivalence.py
+  python scenarios/pygame/features/cen_wrapper/experiments/scripts/exp1_static_equivalence.py --seeds=6
 """
 import os, sys, asyncio, importlib, subprocess, json
 os.environ['SDL_VIDEODRIVER'] = 'dummy'
@@ -65,12 +73,14 @@ async def run():
     while sim.running and n < 200000:
         await bt.step(); sim.update_simulation()
         n += 1
-    def head_planned(a):
+    def planned_bundle(a):
+        # Full bundle (CBBA path) — Hungarian/GRAPE keep len <= 1.
         p = getattr(a, "planned_tasks", None)
         if p:
-            return p[0].task_id
-        return getattr(a, "assigned_task_id", None)
-    sig = sorted([(a.agent_id, head_planned(a)) for a in sim.agents if a.type == "Follower"])
+            return tuple(t.task_id for t in p)
+        aid = getattr(a, "assigned_task_id", None)
+        return (aid,) if aid is not None else ()
+    sig = sorted([(a.agent_id, planned_bundle(a)) for a in sim.agents if a.type == "Follower"])
     print("RESULT_LINE:" + repr(sig) + ":TICKS:" + str(n) + ":RUNNING:" + str(sim.running))
 asyncio.run(run())
 '''.replace('{path}', SCEN_ROOT + '/' + yaml_rel).replace('{seed}', str(seed))
