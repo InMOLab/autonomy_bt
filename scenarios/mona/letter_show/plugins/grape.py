@@ -46,7 +46,7 @@ class GRAPE(_BaseGRAPE):
             'agent_id': self.agent.agent_id,
             'partition': self.partition,
             'evolution_number': self.evolution_number,
-            'time_stamp': self.time_stamp,
+            'mutex_tiebreak': self.time_stamp,
         }
 
     def compute_utility(self, task):  # Individual Utility Function

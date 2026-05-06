@@ -28,7 +28,7 @@ class CBBA:
             'winning_agents': self.z, 
             'winning_bids': self.y,
             'message_received_time_stamp': self.s,
-            'last_updated': time.time(),
+            'updated_at': time.time(),
             }
         
         
@@ -248,7 +248,7 @@ class CBBA:
                 'winning_agents': copy.deepcopy(self.z),
                 'winning_bids': copy.deepcopy(self.y),
                 'message_received_time_stamp': copy.deepcopy(self.s),
-                'last_updated': time.time(),
+                'updated_at': time.time(),
                 }
             self.agent.set_planned_tasks(self.path) # For visualisation (SPACE only)
 

@@ -77,7 +77,7 @@ class DistributedHungarian:
             'agents_info': self.perceived_agents,
             'tasks_info': list(local_tasks.values()),
             'assigned_task_id': self.assigned_task.task_id if self.assigned_task else None,
-            'last_updated': time.time(),
+            'updated_at': time.time(),
         }
 
     def _update_visualization(self):

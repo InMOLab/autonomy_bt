@@ -19,8 +19,8 @@ class GRAPE:
             'agent_id': self.agent.agent_id,
             'partition': self.partition,
             'evolution_number': self.evolution_number,
-            'time_stamp': self.time_stamp,
-            'last_updated': time.time(),
+            'mutex_tiebreak': self.time_stamp,
+            'updated_at': time.time(),
             }
 
 
@@ -71,8 +71,8 @@ class GRAPE:
                 'assigned_task_id': self.assigned_task.task_id if self.assigned_task is not None else None,
                 'partition': self.partition,
                 'evolution_number': self.evolution_number,
-                'time_stamp': self.time_stamp,
-                'last_updated': time.time(),
+                'mutex_tiebreak': self.time_stamp,
+                'updated_at': time.time(),
                 }
             
             # NOTE: Since the assigned task has changed, this indicates that convergence has not yet been reached, so it returns None
@@ -133,9 +133,9 @@ class GRAPE:
         _time_stamp = self.time_stamp
         
         for message in messages_received:
-            if message['evolution_number'] > _evolution_number or (message['evolution_number'] == _evolution_number and message['time_stamp'] > _time_stamp):
+            if message['evolution_number'] > _evolution_number or (message['evolution_number'] == _evolution_number and message['mutex_tiebreak'] > _time_stamp):
                 _evolution_number = message['evolution_number']
-                _time_stamp = message['time_stamp']
+                _time_stamp = message['mutex_tiebreak']
                 _partition = message['partition']
 
                 _satisfied = False
