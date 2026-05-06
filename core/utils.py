@@ -47,6 +47,20 @@ def parse_behavior_tree(xml_path):
                 f"Neither '{xml_path}' nor '{alt_path}' could be found.")
 
 
+def extract_agent_id(agent_or_dict):
+    """Best-effort agent_id extraction from either an Agent obj or a dict."""
+    if isinstance(agent_or_dict, dict):
+        return agent_or_dict.get('agent_id')
+    return getattr(agent_or_dict, 'agent_id', None)
+
+
+def extract_task_id(task_or_dict):
+    """Best-effort task_id extraction from either a Task obj or a dict."""
+    if isinstance(task_or_dict, dict):
+        return task_or_dict.get('task_id')
+    return getattr(task_or_dict, 'task_id', None)
+
+
 def convert_value(v): # "None" → None; 문자열 숫자는 숫자로 변환
     if v == "None":
         return None
