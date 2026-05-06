@@ -1,11 +1,8 @@
 import random
 import copy
+import time
 from core.utils import config
 
-KEEP_MOVING_DURING_CONVERGENCE = config['decision_making']['GRAPE'].get('execute_movements_during_convergence', False) # TODO: Remove later as this is just for backward compatibility
-LOCAL_CONVERGENCE = config['decision_making']['GRAPE'].get('local_convergence', False)
-INITIALIZE_PARTITION = config['decision_making']['GRAPE']['initialize_partition']
-REINITIALIZE_PARTITION = config['decision_making']['GRAPE']['reinitialize_partition_on_completion']
 COST_WEIGHT_FACTOR = config['decision_making']['GRAPE']['cost_weight_factor']
 SOCIAL_INHIBITION_FACTOR = config['decision_making']['GRAPE']['social_inhibition_factor']
 
@@ -16,29 +13,16 @@ class GRAPE:
         self.evolution_number = 0  # Initialize evolution_number
         self.time_stamp = self._initial_time_stamp()  # default 0; subclasses may override
         self.partition = {}  # Initialize partition with emptysets        
-        self.assigned_task = None           
+        self.assigned_task = None
 
-        self.current_utilities = {}
         self.agent.message_to_share = { # Message Initialization
             'agent_id': self.agent.agent_id,
-            'partition': self.partition, 
+            'partition': self.partition,
             'evolution_number': self.evolution_number,
-            'time_stamp': self.time_stamp
-            } 
+            'time_stamp': self.time_stamp,
+            'last_updated': time.time(),
+            }
 
-
-    def initialize_partition_by_distance(self, agents_info, tasks_info, partition):
-        for agent in agents_info:
-            task_distance = {task.task_id: float('inf') if task.completed else (agent.position - task.position).length() for task in tasks_info}
-            if len(task_distance) > 0:
-                preferred_task_id = min(task_distance, key=task_distance.get)
-                self.partition.setdefault(preferred_task_id, set()) # Ensure the task_id key exists in the partition. Set tis value as empty set if it doesn't already exist (This is for dynamic task generation)
-                partition[preferred_task_id].add(agent.agent_id)
-        return partition
-
-    def get_neighbor_agents_info_in_partition(self, partition):
-        _neighbor_agents_info = [neighbor_agent for neighbor_agent in self.agent.agents_info if neighbor_agent.agent_id in partition[self.assigned_task.task_id]]
-        return _neighbor_agents_info
 
     def decide(self, blackboard):
         '''
@@ -55,11 +39,9 @@ class GRAPE:
         self.evolution_number, self.time_stamp, self.partition, self.satisfied = self.distributed_mutex(self.agent.messages_received)
         self.assigned_task = self.get_assigned_task_from_partition(self.partition, local_tasks_info)
         
-        # Check if the existing task is done or not available anymore (e.g., completed by others, disappeared due to dynamic environment, etc.)        
+        # Check if the existing task is done or not available anymore (e.g., completed by others, disappeared due to dynamic environment, etc.)
         if self.assigned_task is None and previous_assigned_task_id is not None and previous_assigned_task_id not in local_tasks_info:
-            # _neighbor_agents_info = self.get_neighbor_agents_info_in_partition(self.partition)    
-            # Default routine
-            self.partition[previous_assigned_task_id] = set()  # Empty the previous task's coalition                  
+            self.partition[previous_assigned_task_id] = set()  # Empty the previous task's coalition
             self.assigned_task = None
             self.satisfied = False
             
@@ -84,13 +66,13 @@ class GRAPE:
             self.assigned_task = self.get_assigned_task_from_partition(self.partition, local_tasks_info) # New assignment
             self.satisfied = True
 
-            # Broadcasting # NOTE: Implemented separately
             self.agent.message_to_share = {
                 'agent_id': self.agent.agent_id,
                 'assigned_task_id': self.assigned_task.task_id if self.assigned_task is not None else None,
-                'partition': self.partition, 
+                'partition': self.partition,
                 'evolution_number': self.evolution_number,
-                'time_stamp': self.time_stamp
+                'time_stamp': self.time_stamp,
+                'last_updated': time.time(),
                 }
             
             # NOTE: Since the assigned task has changed, this indicates that convergence has not yet been reached, so it returns None
@@ -119,8 +101,6 @@ class GRAPE:
 
         _max_task_id = max(_current_utilities, key=_current_utilities.get)
         _max_utility = _current_utilities[_max_task_id]
-
-        self.current_utilities = _current_utilities
 
         return _max_task_id, _max_utility
 

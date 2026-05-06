@@ -1,23 +1,18 @@
-import random
 import pygame
 from core.utils import config
-from enum import Enum
 import numpy as np
 import copy
 import time
 from platforms.pygame.utils_pygame import merge_dicts
 
-KEEP_MOVING_DURING_CONVERGENCE = config['decision_making']['CBBA'].get('execute_movements_during_convergence', False)
 MAX_TASKS_PER_AGENT = config['decision_making']['CBBA']['max_tasks_per_agent']
 LAMBDA = config['decision_making']['CBBA']['task_reward_discount_factor']
 WINNING_BID_CANCEL = config['decision_making']['CBBA']['winning_bid_cancel']
 NO_BUNDLE_DURATION = config['decision_making']['CBBA']['acceptable_empty_bundle_duration']
+FIRST_TASK_CONVERGENCE = config['decision_making']['CBBA'].get('first_task_convergence', False)
 
-class Phase(Enum):
-    BUILD_BUNDLE = 1
-    ASSIGNMENT_CONSENSUS = 2
 
-class CBBA:  
+class CBBA:
     def __init__(self, agent):
         self.agent = agent        
 
@@ -32,8 +27,9 @@ class CBBA:
             'assigned_task_id': None,
             'winning_agents': self.z, 
             'winning_bids': self.y,
-            'message_received_time_stamp': self.s
-            } 
+            'message_received_time_stamp': self.s,
+            'last_updated': time.time(),
+            }
         
         
         self.assigned_task = None
@@ -251,7 +247,8 @@ class CBBA:
                 'assigned_task_id': self.assigned_task.task_id if self.assigned_task is not None else None,
                 'winning_agents': copy.deepcopy(self.z),
                 'winning_bids': copy.deepcopy(self.y),
-                'message_received_time_stamp': copy.deepcopy(self.s)
+                'message_received_time_stamp': copy.deepcopy(self.s),
+                'last_updated': time.time(),
                 }
             self.agent.set_planned_tasks(self.path) # For visualisation (SPACE only)
 
@@ -265,13 +262,12 @@ class CBBA:
 
         else:
             self.assigned_task = None
-
-        if KEEP_MOVING_DURING_CONVERGENCE:
-            # Even though not being converged, let's move to the first task that I prefer to go
-            self.assigned_task = self.path[0] if self.path else None
-            return self.assigned_task.task_id if self.assigned_task is not None else None
-        else:
-            # self.agent.reset_movement()  # Neutralise the agent's current movement during converging to a consensus
+            # First-task convergence gate: commit to path[0] before bundle stabilises. 
+            if FIRST_TASK_CONVERGENCE and self.path:
+                self.assigned_task = self.path[0]
+                self.agent.message_to_share['assigned_task_id'] = self.assigned_task.task_id
+                self.agent.message_to_share['planned_tasks_id'] = [t.task_id for t in self.path]
+                return self.assigned_task.task_id
             return None
     
     def _update(self, task_id, y_k, z_k):
@@ -390,7 +386,6 @@ class CBBA:
         return my_bid_list, best_insertion_idx_list
     
     def get_alternative_path(self, path, task, idx):
-        # _new_path = copy.deepcopy(path)
         _new_path = path[:] # Creates a shallow copy of the list
         try:
             if idx < 0:
