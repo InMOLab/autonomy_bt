@@ -45,10 +45,12 @@ class SGA:
             assigned_task = path[0] if path else None
             self.assigned_tasks[agent_id] = assigned_task
             other_agent.set_planned_tasks(path)
-            task_allocations[agent_id] = assigned_task.task_id if assigned_task is not None else None
+            task_allocations[agent_id] = [t.task_id for t in path]
 
-        task_allocations["timestamp"] = time.time()
-        blackboard["task_allocations"] = task_allocations
+        blackboard["central_plan"] = {
+            'task_allocations': task_allocations,
+            'created_at': time.time(),
+        }
 
     def _drop_completed_tasks(self, agents):
         for other_agent in agents:

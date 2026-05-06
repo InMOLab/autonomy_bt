@@ -49,16 +49,18 @@ class Hungarian:
         if any_available:
             self._run_hungarian(_local_agents_info, _local_tasks_info)
 
-        # Write task_allocations + mirror to per-agent planned_tasks (visualisation).
+        # Write central_plan + mirror to per-agent planned_tasks (visualisation).
         task_allocations = {}
         for _agent in _local_agents_info:
             agent_id = _agent.agent_id
             assigned_task = self.assigned_tasks.get(agent_id)
             _agent.set_planned_tasks([assigned_task] if assigned_task else [])
-            task_allocations[agent_id] = assigned_task.task_id if assigned_task else None
+            task_allocations[agent_id] = [assigned_task.task_id] if assigned_task else []
 
-        task_allocations["timestamp"] = time.time()
-        blackboard["task_allocations"] = task_allocations
+        blackboard["central_plan"] = {
+            'task_allocations': task_allocations,
+            'created_at': time.time(),
+        }
 
     def _run_hungarian(self, agents, tasks):
         """Build N×N cost matrix (square via dummy padding), run scipy, store assignment."""

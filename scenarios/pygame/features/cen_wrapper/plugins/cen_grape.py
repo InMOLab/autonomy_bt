@@ -48,9 +48,9 @@ class CenGRAPE:
         self._init_partition_structure(_local_tasks_info)
         self._init_agents_state(_local_agents_info)
 
+        # Give up the decision-making process if there is no task nearby
         if len(_local_tasks_info) == 0:
-            blackboard["task_allocations"] = {"timestamp": time.time()}
-            return
+            return None
 
         self._compute_cen_grape(_local_agents_info, _local_tasks_info)
 
@@ -58,15 +58,17 @@ class CenGRAPE:
         for other_agent in _local_agents_info:
             agent_id = other_agent.agent_id
             allocation = self.agents_state.get(agent_id, {}).get('allocation', None)
-            task_allocations[agent_id] = allocation
+            task_allocations[agent_id] = [allocation] if allocation is not None else []
             if allocation is not None:
                 assigned_task = next((t for t in _local_tasks_info if t.task_id == allocation), None)
                 other_agent.set_planned_tasks([assigned_task] if assigned_task else [])
             else:
                 other_agent.set_planned_tasks([])
 
-        task_allocations["timestamp"] = time.time()
-        blackboard["task_allocations"] = task_allocations
+        blackboard["central_plan"] = {
+            'task_allocations': task_allocations,
+            'created_at': time.time(),
+        }
 
     def _init_partition_structure(self, tasks_info):
         for task in tasks_info:

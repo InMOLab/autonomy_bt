@@ -1,15 +1,12 @@
-"""BT nodes for the cen_wrapper scenario.
-
-Most action/condition nodes are thin subclasses of platform base nodes. The scenario-specific contributions are:
-  - `CentralisationWrapper` — Decorator that turns any dec MRTA plugin into a centralised one by simulating the child for each follower.
-  - `AssignCenTask` / `ApplyCenTask` / `TeachBT` — leader↔follower broadcast handshake for the centralised baseline.
-"""
+"""BT nodes for the cen_wrapper scenario."""
 import importlib
 import time
 
+import pygame
+
 # Composite/decorator names re-exported here so the BT XML parser (`getattr(bt_module, node_type)`) can resolve them from the scenario's `bt_nodes` namespace.
 from core.bt_nodes import (
-    BTNodeList, Status, Node,
+    BTNodeList, Node, Status,
     Sequence, Fallback, ReactiveSequence, ReactiveFallback, Parallel,
     SyncAction, SyncCondition,
 )
@@ -23,14 +20,18 @@ from platforms.pygame.bt_nodes_pygame import (
     GatherLocalInfo,
 )
 
-from core.utils import config
+from core.utils import config, extract_agent_id, extract_task_id
 
 
 # ─── BT Node Registration ──────────────────────────────────────────────
 CUSTOM_ACTION_NODES = [
     # `AssignTask` and `GatherLocalInfo` come from core / platforms (imported above).
-    'AssignCenTask',      # cen-side: leader runs centralised plugin (sga/cen_grape/hungarian)
-    'ApplyCenTask',       # follower: applies leader's broadcast result
+    'AssignCenTask',          # cen-side: leader runs centralised plugin (sga/cen_grape/hungarian)
+    'ApplyCenTask',           # follower: applies leader's broadcast result
+    'RelayDecMessages',       # mesh-relay [cen]: stage dec-peer msgs into outgoing relay payload
+    'UnpackRelayedMessages',  # mesh-relay [dec]: flatten incoming relay payload for AssignTask
+    'FilterClaimedTasks',     # mesh-relay [dec]: drop cen-claimed tasks/agents from dec view
+    'ForwardCenAllocation',   # mesh-relay [dec]: forward leader's task_allocations into mesh
     'MoveToTarget',
     'ExecuteTask',
     'Explore',
@@ -43,6 +44,7 @@ CUSTOM_CONDITION_NODES = [
     'IsArrivedAtTarget',
     'IsTaskAssigned',
     'IsConnectedWithLeader',
+    'IsAllocationConverged',
 ]
 
 CUSTOM_DECORATOR_NODES = [
@@ -61,9 +63,6 @@ sampling_time = 1.0 / config['simulation']['sampling_freq']
 agent_max_random_movement_duration = config.get('agents', {}).get(
     'random_exploration_duration', 1000,
 ) or 1000
-leader_communication_radius = config['agents']['types']['Leader'].get(
-    'communication_radius', 0,
-)  # 0 means "global"; used by IsConnectedWithLeader
 
 
 def _load_plugin(yaml_key):
@@ -100,7 +99,7 @@ class IsArrivedAtTarget(_IsArrivedAtTask):
 
 
 class IsTaskAssigned(SyncCondition):
-    """Check whether the agent currently has a task assigned."""
+    """SUCCESS iff `blackboard['assigned_task_id']` is set."""
 
     def __init__(self, name, agent):
         super().__init__(name, self._is_assigned)
@@ -114,31 +113,62 @@ class IsTaskAssigned(SyncCondition):
 
 
 class IsConnectedWithLeader(SyncCondition):
-    """Check whether the agent can reach the Leader (distance-based)."""
+    """SUCCESS iff a Leader-marked broadcast is in the inbox this tick."""
 
     def __init__(self, name, agent):
         super().__init__(name, self._is_connected)
-        self.leader_agent = agent.agents_info[-1]
 
     def _is_connected(self, agent, blackboard):
-        if self.leader_agent is not None and self.leader_agent.type == 'Leader':
-            distance = agent.position.distance_to(self.leader_agent.position)
-        else:
-            agents_info = getattr(agent, 'agents_info', {})
-            self.leader_agent = None
-            for agent_info in agents_info:
-                if agent_info.type == 'Leader':
-                    self.leader_agent = agent_info
-                    distance = agent.position.distance_to(self.leader_agent.position)
-                    break
+        for message in agent.messages_received:
+            if message.get('type') == 'Leader':
+                return Status.SUCCESS
+        return Status.FAILURE
 
-        if self.leader_agent is None:
+
+class IsAllocationConverged(SyncCondition):
+    """Gate that opens once the team's allocation snapshot is stable for two ticks."""
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._check)
+        self.previous_snapshot = None
+
+    def _check(self, agent, blackboard):
+        def as_bundle(outbox):
+            bundle = outbox.get('planned_tasks_id')
+            if bundle is not None:
+                return list(bundle)
+            primary = outbox.get('assigned_task_id')
+            return [primary] if primary is not None else []
+
+        leader_team = None
+        peers_seen = {agent.agent_id}
+        current_snapshot = {agent.agent_id: as_bundle(agent.message_to_share)}
+
+        for message in agent.messages_received:
+            # Centralised Plan
+            plan = message.get('central_plan')
+            if isinstance(plan, dict):
+                allocations = plan.get('task_allocations', {})
+                for follower_id, bundle in allocations.items():
+                    current_snapshot[follower_id] = list(bundle) if bundle else []
+                leader_team = set(allocations.keys())
+                continue
+            # Decentralised Plan
+            peer_id = message.get('agent_id')
+            if peer_id is None or message.get('type') == 'Leader':
+                continue
+            peers_seen.add(peer_id)
+            current_snapshot[peer_id] = as_bundle(message)
+
+        # Partial-radius: leader broadcast covers only the cen-cluster, dec peers fill in via direct messages — union to capture the whole team.
+        expected = peers_seen | (leader_team or set())
+
+        if not expected.issubset(current_snapshot):
             return Status.FAILURE
-
-        if distance < leader_communication_radius:
+        if self.previous_snapshot == current_snapshot:
             return Status.SUCCESS
-        else:
-            return Status.FAILURE
+        self.previous_snapshot = current_snapshot
+        return Status.FAILURE
 
 
 # =============================================================================
@@ -170,51 +200,19 @@ class TeachBT(SyncAction):
 
     def __init__(self, name, agent):
         super().__init__(name, self._teach)
+        # Stamp type marker at construction so the BTRunner's tick-0 snapshot already advertises the leader. Followers' message-based `IsConnectedWithLeader` then succeeds from tick 0.
+        agent.message_to_share['type'] = agent.type
+        agent.message_to_share['updated_at'] = time.time()
 
     def _teach(self, agent, blackboard):
-        task_allocations = blackboard.get('task_allocations', {})
-
-        agent.message_to_share['task_allocations'] = task_allocations
+        agent.message_to_share['central_plan'] = blackboard.get('central_plan', {})
+        agent.message_to_share['updated_at'] = time.time()
         agent.broadcast_message(to_all=False)
-
-        return Status.SUCCESS
-
-
-class ApplyCenTask(SyncAction):
-    """[Follower] Receives the MRTA allocation broadcast by the leader and
-    applies it as its own assigned task. (Companion to leader-side
-    `AssignCenTask` — 'Assign' on the leader runs the algorithm, 'Apply'
-    on the follower adopts the result.)
-    """
-
-    def __init__(self, name, agent):
-        super().__init__(name, self._apply)
-
-    def _apply(self, agent, blackboard):
-        latest_task_allocations = {}
-        latest_timestamp = 0
-
-        for msg in agent.messages_received:
-            _task_allocations = msg.get('task_allocations', {})
-            if _task_allocations and isinstance(_task_allocations, dict):
-                msg_timestamp = _task_allocations.get('timestamp', 0)
-                if msg_timestamp > latest_timestamp:
-                    latest_timestamp = msg_timestamp
-                    latest_task_allocations = _task_allocations
-
-        blackboard['assigned_task_id'] = latest_task_allocations.get(agent.agent_id, None)
-        agent.assigned_task_id = blackboard['assigned_task_id']
-
         return Status.SUCCESS
 
 
 class AssignCenTask(SyncAction):
-    """[Leader] Runs a centralised algorithm (sga / cen_grape / hungarian)
-    that assigns tasks to all followers in a single pass. The plugin
-    class is dispatched from yaml's `decision_making.cen_plugin` — same
-    pattern as `AssignTask` dispatching the dec-side plugin via
-    `decision_making.plugin`.
-    """
+    """[Leader] Run the centralised allocation plugin (yaml `decision_making.cen_plugin`)."""
 
     def __init__(self, name, agent):
         super().__init__(name, self._assign)
@@ -226,8 +224,7 @@ class AssignCenTask(SyncAction):
 
     def _assign(self, agent, blackboard):
         self.cen_decision_maker.decide(blackboard)
-        # The plugin writes blackboard['task_allocations']; TeachBT then
-        # broadcasts it to followers.
+        # The plugin writes blackboard['central_plan']; TeachBT then broadcasts it to followers.
         return Status.SUCCESS
 
 
@@ -243,44 +240,253 @@ class Halt(SyncAction):
 
 
 # =============================================================================
-# Decorator Node — the paper's central contribution
+# Mesh-relay shared helpers
 # =============================================================================
 
-class CentralisationWrapper(Node):
-    """Decorator that centralises an MRTA allocation algorithm.
+def _get_latest_central_plan(agent):
+    """Pick the freshest `central_plan` ({'task_allocations', 'created_at'}) from the inbox (or None)."""
+    latest_plan, latest_created_at = None, -1
+    for message in agent.messages_received:
+        plan = message.get('central_plan')
+        if isinstance(plan, dict):
+            created_at = plan.get('created_at', 0)
+            if created_at > latest_created_at:
+                latest_created_at = created_at
+                latest_plan = plan
+    return latest_plan
 
-    Placed inside the leader's BT. Every tick it iterates over each
-    connected agent and *simulates* the child (a dec-side `AssignTask`)
-    on behalf of that target agent — the leader's aggregated information
-    is fed into the per-call blackboard. Once consensus is reached
-    (current allocation equals the previous tick's), the leader
-    broadcasts the result and returns SUCCESS.
-    """
+
+def _strip_nested_relay(msg):
+    """Shallow copy of `msg` without `relayed_messages` (cap relay at 1 hop)."""
+    return {k: v for k, v in msg.items() if k != 'relayed_messages'}
+
+
+def _freshness_score(msg):
+    """Plugin-agnostic message freshness — wall-clock `updated_at` stamp."""
+    return msg.get('updated_at', 0) or 0
+
+
+# =============================================================================
+# Cen branch (in-range follower) — order matches `bt_follower_static_relay.xml`
+# =============================================================================
+
+class ApplyCenTask(SyncAction):
+    """Adopt this follower's primary from the leader's broadcast."""
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._apply)
+
+    def _apply(self, agent, blackboard):
+        latest_plan = _get_latest_central_plan(agent)
+        # Cache for downstream `ForwardCenAllocation` (symmetric with FilterClaimedTasks on the dec branch).
+        blackboard['_latest_central_plan'] = latest_plan
+        bundle = (latest_plan or {}).get('task_allocations', {}).get(agent.agent_id, [])
+        primary_task_id = bundle[0] if bundle else None
+        blackboard['assigned_task_id'] = primary_task_id
+        agent.assigned_task_id = primary_task_id
+        return Status.SUCCESS
+
+
+class ForwardCenAllocation(SyncAction):
+    """Re-publish the leader's allocation so out-of-range peers can learn it."""
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._forward)
+
+    def _forward(self, agent, blackboard):
+        latest_plan = blackboard.get('_latest_central_plan')
+        if latest_plan is None:
+            return Status.SUCCESS
+
+        agent.message_to_share['central_plan'] = latest_plan
+        agent.message_to_share['updated_at'] = time.time()
+        return Status.SUCCESS
+
+
+class RelayDecMessages(SyncAction):
+    """Bundle 1-hop dec-peer messages into our outbox so cen-followers bridge the mesh."""
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._stage)
+
+    def _stage(self, agent, blackboard):
+        self_agent_id = agent.agent_id
+        relayed_by_sender_id = {}  # peer agent_id → flattened message dict
+        for message in agent.messages_received:
+            sender_id = message.get('agent_id')
+            if sender_id is None or sender_id == self_agent_id:
+                continue
+            if message.get('type') == 'Leader':
+                continue
+            relayed_by_sender_id[sender_id] = _strip_nested_relay(message)
+            # Splice nested relays so a 2-hop dec source can reach us.
+            for nested_message in message.get('relayed_messages', []):
+                nested_sender_id = nested_message.get('agent_id')
+                if (nested_sender_id is None
+                        or nested_sender_id == self_agent_id
+                        or nested_sender_id == sender_id):
+                    continue
+                if nested_sender_id not in relayed_by_sender_id:
+                    relayed_by_sender_id[nested_sender_id] = _strip_nested_relay(nested_message)
+
+        agent.message_to_share['relayed_messages'] = list(relayed_by_sender_id.values())
+        agent.message_to_share['updated_at'] = time.time()
+        return Status.SUCCESS
+
+
+# =============================================================================
+# Dec branch (out-of-range follower) — order matches `bt_follower_static_relay.xml`
+# =============================================================================
+
+class UnpackRelayedMessages(SyncAction):
+    """Splice relay payload into the inbox so dec plugins see relayed peers as direct."""
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._unpack)
+
+    def _unpack(self, agent, blackboard):
+        self_agent_id = agent.agent_id
+        flattened_by_sender_id = {}     # peer_id → message
+        scores_by_sender_id = {}        # peer_id → freshness score
+        direct_sender_ids = set()       # peer_ids reached via 1-hop direct
+
+        # Pass 1: direct copies — always 1-hop, always fresher than nested.
+        for message in agent.messages_received:
+            sender_id = message.get('agent_id')
+            if sender_id is None or sender_id == self_agent_id:
+                continue
+            flattened_by_sender_id[sender_id] = message
+            scores_by_sender_id[sender_id] = _freshness_score(message)
+            direct_sender_ids.add(sender_id)
+
+        # Pass 2: nested (relayed) copies — direct trumps relayed;
+        # among nested-only peers pick the highest freshness score
+        # (otherwise iteration order can let a stale snapshot win).
+        for message in agent.messages_received:
+            sender_id = message.get('agent_id')
+            for nested_message in message.get('relayed_messages', []):
+                nested_sender_id = nested_message.get('agent_id')
+                if (nested_sender_id is None
+                        or nested_sender_id == self_agent_id
+                        or nested_sender_id == sender_id):
+                    continue
+                if nested_sender_id in direct_sender_ids:
+                    continue  # direct trumps nested
+                nested_score = _freshness_score(nested_message)
+                if (nested_sender_id not in flattened_by_sender_id
+                        or nested_score > scores_by_sender_id[nested_sender_id]):
+                    flattened_by_sender_id[nested_sender_id] = nested_message
+                    scores_by_sender_id[nested_sender_id] = nested_score
+
+        agent.messages_received = list(flattened_by_sender_id.values())
+        return Status.SUCCESS
+
+
+class FilterClaimedTasks(SyncAction):
+    """Strip cen-claimed tasks/agents from the dec plugin's view."""
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._filter)
+
+    def _filter(self, agent, blackboard):
+        latest_plan = _get_latest_central_plan(agent)
+        blackboard['_latest_central_plan'] = latest_plan
+        if latest_plan is None:
+            return Status.SUCCESS
+
+        cen_claimed_agent_ids = set()
+        cen_claimed_task_ids = set()
+        for follower_id, bundle in latest_plan.get('task_allocations', {}).items():
+            if follower_id == agent.agent_id:
+                continue
+            if bundle:
+                cen_claimed_agent_ids.add(follower_id)
+                cen_claimed_task_ids.update(t for t in bundle if t is not None)
+
+        # Filter centrally-claimed tasks in "blackboard['local_tasks_info']"
+        if cen_claimed_task_ids:
+            local_tasks = blackboard.get('local_tasks_info', {})
+            blackboard['local_tasks_info'] = {
+                task_id: task for task_id, task in local_tasks.items()
+                if task_id not in cen_claimed_task_ids
+            }
+
+        # Filter centrally-claimed agents/tasks in "agent.message_received"
+        if cen_claimed_agent_ids or cen_claimed_task_ids:
+            cleaned_messages = []
+            for message in agent.messages_received:
+                if message.get('agent_id') in cen_claimed_agent_ids:
+                    continue
+                agents_info = message.get('agents_info')
+                tasks_info = message.get('tasks_info')
+                agents_info_dirty = isinstance(agents_info, list) and any(
+                    extract_agent_id(other_agent) in cen_claimed_agent_ids
+                    for other_agent in agents_info
+                )
+                tasks_info_dirty = isinstance(tasks_info, list) and any(
+                    extract_task_id(task) in cen_claimed_task_ids
+                    for task in tasks_info
+                )
+                if agents_info_dirty or tasks_info_dirty:
+                    message = dict(message)
+                    if agents_info_dirty:
+                        message['agents_info'] = [
+                            other_agent for other_agent in agents_info
+                            if extract_agent_id(other_agent) not in cen_claimed_agent_ids
+                        ]
+                    if tasks_info_dirty:
+                        message['tasks_info'] = [
+                            task for task in tasks_info
+                            if extract_task_id(task) not in cen_claimed_task_ids
+                        ]
+                cleaned_messages.append(message)
+            agent.messages_received = cleaned_messages
+
+        return Status.SUCCESS
+
+
+# =============================================================================
+# CentralisationWrapper — paper's central architectural contribution
+# =============================================================================
+
+class FollowerProxy:
+    """Leader-side stand-in for a follower — mimics BaseAgent's attribute surface
+    so dec MRTA plugins run unchanged inside `CentralisationWrapper`."""
+
+    def __init__(self, agent_id, position):
+        self.agent_id = agent_id
+        self.position = position
+        self.messages_received = []
+        self.message_to_share = {}
+        self.assigned_task_id = None
+        self.planned_tasks = []
+        # `decision_maker` is attached lazily by AssignTask on first invocation.
+
+    def set_planned_tasks(self, task_list):
+        self.planned_tasks = task_list
+
+
+class CentralisationWrapper(Node):
+    """Decorator: simulate the dec MRTA child on each follower; broadcast on consensus."""
 
     def __init__(self, name, child):
         super().__init__(name)
         self.type = "CentralisationWrapper"
         self.children = [child]
         self.previous_allocations = {}
-        # Leader-side per-follower proxies. Each proxy carries its own decision_maker
-        # (attached lazily by the child AssignTask on first invocation), which holds
-        # the per-follower persistent state across BT ticks.
+        # Leader-side per-follower proxies. 
         self.proxies = {}  # follower_id -> FollowerProxy
-        # Leader-side cache of each proxy's last-tick `message_to_share`. In real
-        # distributed deployment this corresponds to "the last outbox message the
-        # leader received from each follower"; here it's the last output of the
-        # algorithm running on the proxy. Used to populate the next tick's
-        # `proxy.messages_received` so inter-iteration consensus propagates.
+        # Leader-side cache of each proxy's last-tick `message_to_share`. 
         self.proxy_outboxes = {}  # follower_id -> dict (last message_to_share)
 
     async def run(self, agent, blackboard):
-        from scenarios.pygame.features.cen_wrapper.plugins.follower_proxy import FollowerProxy
-        import pygame
-        agents = getattr(agent, 'agents_nearby', [])
+        agents = blackboard['local_agents_info']
+
+        # Per-tick output. 
         current_tick_allocations = {}
-        # Freeze the outbox cache at tick start so all per-target invocations see the
-        # same peer-message view (analog of BTRunner's tick-start snapshot — required
-        # to avoid intra-tick cascade where target N+1 reads target N's just-updated outbox).
+        current_tick_primary = {}  # primary-only view, for convergence check
+        
+        # Freeze the outbox cache at tick start so all per-target invocations see the same peer-message view (analog of BTRunner's tick-start snapshot)
         outbox_snapshot = dict(self.proxy_outboxes)
 
         for target_agent in agents:
@@ -291,7 +497,7 @@ class CentralisationWrapper(Node):
             if tid not in self.proxies:
                 self.proxies[tid] = FollowerProxy(tid, target_agent.position)
             proxy = self.proxies[tid]
-            # Refresh per-tick fields (in pygame sim: copy from live target; in ROS2 deployment: populate from received topics).
+            # Refresh per-tick fields (pygame: copy from live target).
             proxy.position = pygame.Vector2(target_agent.position)
             # Build messages_received from the frozen outbox snapshot (excluding self).
             proxy.messages_received = [
@@ -302,34 +508,36 @@ class CentralisationWrapper(Node):
             # Shallow-copy leader's blackboard so each per-target invocation has its own I/O scope.
             target_blackboard = dict(blackboard)
             await self.children[0].run(proxy, target_blackboard)
-            current_tick_allocations[tid] = target_blackboard.get('assigned_task_id')
+            primary = target_blackboard.get('assigned_task_id')
+            current_tick_primary[tid] = primary
+
+            # Prefer plugin's `planned_tasks_id` (CBBA) on its outbox;
+            # fall back to [primary] for single-task plugins.
+            bundle = proxy.message_to_share.get('planned_tasks_id') if proxy.message_to_share else None
+            if not bundle:
+                bundle = [primary] if primary is not None else []
+            current_tick_allocations[tid] = list(bundle)
+
             # Cache this proxy's outbox — visible only on the *next* tick's iteration.
             self.proxy_outboxes[tid] = dict(proxy.message_to_share) if proxy.message_to_share else {}
 
+            # Mirror the proxy's plan back onto the live target so the platform's visualisation (path overlay) reflects the wrapper's decision. 
+            target_agent.set_planned_tasks(list(proxy.planned_tasks))
+
         agent.reset_messages_received()
-        consensus_reached = self._is_consensus_reached(current_tick_allocations)
+        consensus_reached = self._is_consensus_reached(current_tick_primary)
 
         if consensus_reached:
-            blackboard['task_allocations'] = {k: v for k, v in current_tick_allocations.items()}
-            blackboard['task_allocations']['timestamp'] = time.time()
-            blackboard['consensus_reached'] = True
-
+            blackboard['central_plan'] = {
+                'task_allocations': dict(current_tick_allocations),
+                'created_at': time.time(),
+            }
             return Status.SUCCESS
         else:
-            self.previous_allocations = current_tick_allocations.copy()
-            blackboard['consensus_reached'] = False
-
+            self.previous_allocations = current_tick_primary.copy()
             return Status.RUNNING
 
     def _is_consensus_reached(self, current_allocations):
         """Consensus = current tick's allocations match previous tick's exactly."""
-        if not self.previous_allocations:
-            return False
+        return bool(self.previous_allocations) and current_allocations == self.previous_allocations
 
-        for agent_id in current_allocations:
-            if agent_id not in self.previous_allocations:
-                return False
-            if current_allocations[agent_id] != self.previous_allocations[agent_id]:
-                return False
-
-        return True
