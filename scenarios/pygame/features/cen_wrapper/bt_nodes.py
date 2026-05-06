@@ -525,19 +525,26 @@ class CentralisationWrapper(Node):
             target_agent.set_planned_tasks(list(proxy.planned_tasks))
 
         agent.reset_messages_received()
-        consensus_reached = self._is_consensus_reached(current_tick_primary)
 
-        if consensus_reached:
-            blackboard['central_plan'] = {
-                'task_allocations': dict(current_tick_allocations),
-                'created_at': time.time(),
-            }
+        # Always publish the current plan so followers act on the most
+        # recent allocation — gates on consensus only the BT status signal,
+        # not the broadcast itself (avoids stale-plan windows when team
+        # membership changes mid-run).
+        blackboard['central_plan'] = {
+            'task_allocations': dict(current_tick_allocations),
+            'created_at': time.time(),
+        }
+
+        if self._is_consensus_reached(current_tick_primary):
             return Status.SUCCESS
-        else:
-            self.previous_allocations = current_tick_primary.copy()
-            return Status.RUNNING
+        self.previous_allocations = current_tick_primary.copy()
+        return Status.RUNNING
 
     def _is_consensus_reached(self, current_allocations):
-        """Consensus = current tick's allocations match previous tick's exactly."""
-        return bool(self.previous_allocations) and current_allocations == self.previous_allocations
+        """Consensus = every currently-active agent's allocation matches the
+        previous tick. Tolerates team shrinkage (member moved out of leader
+        range) so the remaining members can still be considered stable.
+        """
+        return (bool(self.previous_allocations)
+                and current_allocations.items() <= self.previous_allocations.items())
 
