@@ -8,9 +8,10 @@ matches the centralised `cen_grape.CenGRAPE` baseline. The 3-way
 comparison (pure-dec ↔ wrapper ↔ cen_grape) then converges to the same
 nash equilibrium for the static-mode equivalence experiment.
 
-This variant is only loaded by the cen_wrapper static yaml configs that
-opt in via `decision_making.plugin`. The shared GRAPE retains its
-original random `time_stamp` behaviour for all other consumers.
+This variant is only loaded by the cen_wrapper yaml configs that opt in
+via `decision_making.plugin: scenarios.pygame.features.cen_wrapper.
+plugins.grape_deterministic.GRAPE`. The shared GRAPE retains its original
+random `time_stamp` behaviour for all other consumers.
 """
 from plugins.mrta.grape.grape import GRAPE as SharedGRAPE
 

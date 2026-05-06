@@ -2,7 +2,7 @@ scenario:
   environment: scenarios.pygame.features.cen_wrapper
 
 decision_making:
-  plugin: plugins.mrta.grape.grape.GRAPE
+  plugin: scenarios.pygame.features.cen_wrapper.plugins.grape_deterministic.GRAPE
   cen_plugin: scenarios.pygame.features.cen_wrapper.plugins.cen_grape.CenGRAPE
   GRAPE:
     cost_weight_factor: 1.0
