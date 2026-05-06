@@ -224,20 +224,29 @@ class CBBA:
                 if len(self.bundle) > 0:
                     self.no_bundle_duration = 0
 
-        # Rebid check: recalculate bid for the first task in the path
+        # Rebid check: recalculate marginal bid for every task in path. If any marginal worsened (own move OR target task moved), abandon the entire bundle and rebuild. 
         if self.path:
-            first_task = self.path[0]
-            current_bid = self.calculate_score_along_path(self.agent.position, [first_task])
-            if current_bid >= self.y.get(first_task.task_id, 0):
-                self.y[first_task.task_id] = current_bid
-            else:
-                # Position worsened — abandon entire bundle and rebuild
+            S_p = self.calculate_score_along_path(self.agent.position, self.path)
+            new_bids = {}
+            bundle_worsened = False
+            for k, task in enumerate(self.path):
+                path_without_k = self.path[:k] + self.path[k+1:]
+                S_without = self.calculate_score_along_path(self.agent.position, path_without_k)
+                current_marginal = S_p - S_without
+                if current_marginal < self.y.get(task.task_id, 0):
+                    bundle_worsened = True
+                    break
+                new_bids[task.task_id] = current_marginal
+            if bundle_worsened:
                 for task_id in self.bundle:
                     if self.z.get(task_id) == self.agent.agent_id:
                         self.y[task_id] = float('-inf')
                         self.z[task_id] = None
                 self.bundle = []
                 self.path = []
+            else:
+                for task_id, bid in new_bids.items():
+                    self.y[task_id] = bid
 
         if True:  # Phase.BUILD_BUNDLE
             self.build_bundle(local_tasks_info)
@@ -271,8 +280,9 @@ class CBBA:
             return None
     
     def _update(self, task_id, y_k, z_k):
-        self.y[task_id] = y_k[task_id]   # Winning bid update
-        self.z[task_id] = z_k[task_id]   # Winning agent update
+        # Use .get so a peer message with empty winning_agents/_bids still triggers Rule-15 reset rather than silently failing on KeyError.
+        self.y[task_id] = y_k.get(task_id, 0)        # Winning bid update
+        self.z[task_id] = z_k.get(task_id)           # Winning agent update
 
 
     def _reset(self, task_id):
@@ -348,10 +358,10 @@ class CBBA:
             self.s[other_agent.get('agent_id')] = current_timestamp
 
         
-        # For two-hop neighbor agents
-        max_timestamp = {}     
+        # For two-hop neighbor agents (defensive on `or {}` so a release synth without `message_received_time_stamp` doesn't crash merge_dicts).
+        max_timestamp = {}
         for other_agent_message in self.agent.messages_received:
-            time_stamp = other_agent_message.get("message_received_time_stamp")
+            time_stamp = other_agent_message.get("message_received_time_stamp") or {}
             max_timestamp = merge_dicts(max_timestamp, time_stamp)
 
         # Finally merge

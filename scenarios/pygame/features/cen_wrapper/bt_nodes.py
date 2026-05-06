@@ -411,11 +411,17 @@ class FilterClaimedTasks(SyncAction):
                 if task_id not in cen_claimed_task_ids
             }
 
-        # Filter centrally-claimed agents/tasks in "agent.message_received"
+        # Filter centrally-claimed agents/tasks in "agent.messages_received". cen-claimed agents' real messages are replaced with a minimal "release" carrying only `agent_id` — dec plugins detect the missing payload and reset whatever stale state they hold for that sender.
         if cen_claimed_agent_ids or cen_claimed_task_ids:
+            now = time.time()
             cleaned_messages = []
             for message in agent.messages_received:
-                if message.get('agent_id') in cen_claimed_agent_ids:
+                sender_id = message.get('agent_id')
+                if sender_id in cen_claimed_agent_ids:
+                    cleaned_messages.append({
+                        'agent_id': sender_id,
+                        'updated_at': now,
+                    })
                     continue
                 agents_info = message.get('agents_info')
                 tasks_info = message.get('tasks_info')
