@@ -237,7 +237,7 @@ class ResultSaver:
 
         for i, col in enumerate(data_columns):
             plt.subplot((num_plots + 1) // 2, 2, i + 1)
-            plt.plot(time, df[col], label=col)
+            plt.plot(time.to_numpy(), df[col].to_numpy(), label=col)
             plt.xlabel('Time')
             plt.ylabel(col.replace('_', ' ').title())
             plt.legend()
