@@ -18,10 +18,12 @@ class SGA:
 
     def __init__(self, agent):
         self.agent = agent  # leader
+        self._reset_state()
+
+    def _reset_state(self):
         self.bundles = {}            # agent_id -> list[task_id]
         self.paths = {}              # agent_id -> list[Task]
         self.assigned_tasks = {}     # agent_id -> Task or None (head)
-        self.agents_score_list = {}  # agent_id -> {task_id: bid}
         self.winning_bids = {}       # task_id -> bid_value
         self.winning_agents = {}     # task_id -> agent_id
 
@@ -32,10 +34,10 @@ class SGA:
             _local_tasks_info = list(_local_tasks_info.values())
         _local_agents_info = blackboard['local_agents_info']  # list[Agent]
 
+        # sga is incremental — reset every tick for dynamic environment
+        self._reset_state()
+
         self._init_agent_state(_local_agents_info)
-
-        self._drop_completed_tasks(_local_agents_info)
-
         self._compute_sga(_local_tasks_info, _local_agents_info)
 
         task_allocations = {}
@@ -92,8 +94,8 @@ class SGA:
             for _agent in _local_agents_info:
                 _bundle = self.bundles.get(_agent.agent_id, [])
                 _path = self.paths.get(_agent.agent_id, [])
-                
-                if len(_bundle) >= min(MAX_TASKS_PER_AGENT, len(remaining_tasks)):
+
+                if len(_bundle) >= MAX_TASKS_PER_AGENT:
                     continue
 
                 my_bid_list, best_insertion_idx_list = self.get_my_bid_value_list(_agent, remaining_tasks, _path)

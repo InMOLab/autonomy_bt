@@ -49,6 +49,20 @@ class DistributedHungarian:
             'agent_id': self.agent.agent_id,
             'position': self.agent.position,
         }}
+        # Pass 1: prefer each peer's own self-entry — that's the freshest position
+        # source. (Without this, a peer's stale position from another peer's
+        # `agents_info` could win first-encountered and freeze stale perception.)
+        for msg in valid_msgs:
+            sender_id = msg.get('agent_id')
+            if sender_id is None or sender_id in candidates:
+                continue
+            sender_self = next(
+                (p for p in msg.get('agents_info', []) if extract_agent_id(p) == sender_id),
+                None
+            )
+            if sender_self is not None:
+                candidates[sender_id] = sender_self
+        # Pass 2: fill in peers reachable only via indirect mentions (multi-hop).
         for msg in valid_msgs:
             for peer in msg.get('agents_info', []):
                 aid = extract_agent_id(peer)

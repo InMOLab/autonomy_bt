@@ -36,18 +36,8 @@ class Hungarian:
             _local_tasks_info = list(_local_tasks_info.values())
         _local_agents_info = blackboard['local_agents_info']
 
-        # Drop completed assignments so they re-enter the pool.
-        for _agent in _local_agents_info:
-            assigned_task = self.assigned_tasks.get(_agent.agent_id)
-            if assigned_task is not None and assigned_task.completed:
-                self.assigned_tasks[_agent.agent_id] = None
-
-        any_available = any(
-            self.assigned_tasks.get(_agent.agent_id) is None
-            for _agent in _local_agents_info
-        )
-        if any_available:
-            self._run_hungarian(_local_agents_info, _local_tasks_info)
+        # Always rerun 
+        self._run_hungarian(_local_agents_info, _local_tasks_info)
 
         # Write central_plan + mirror to per-agent planned_tasks (visualisation).
         task_allocations = {}
