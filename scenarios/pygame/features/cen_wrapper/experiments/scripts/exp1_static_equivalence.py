@@ -2,9 +2,9 @@
 
 For each (algo, mode) ∈ {CBBA, GRAPE, Hungarian} × {pure-dec, cen-wrapper,
 cen-baseline}, runs the *static* yaml and records each follower's final
-`planned_tasks[0].task_id` (or `assigned_task_id`). The 3-mode signatures
-must match within each algorithm group — that is the byte-equivalent
-verification of Proposition 1 (allocation equivalence).
+`planned_tasks` bundle (full path for CBBA, single task for GRAPE/Hungarian).
+The 3-mode signatures must match within each algorithm group — that is the
+byte-equivalent verification of Proposition 1 (allocation equivalence).
 
 Comm radius is fully connected (= 2000) in every static yaml so
 positional sampling cannot diverge between modes.
@@ -12,30 +12,38 @@ positional sampling cannot diverge between modes.
 Usage (from project root, autonomy_bt/):
   python scenarios/pygame/features/cen_wrapper/experiments/scripts/exp1_static_equivalence.py
   python scenarios/pygame/features/cen_wrapper/experiments/scripts/exp1_static_equivalence.py --seeds=6
+
+Outputs:
+  - console: per-seed match/mismatch summary
+  - data/exp1_static_results.csv: raw per-(seed, algo, mode, agent_id) bundle
+    so 3-way comparison can be redone offline / cross-checked.
 """
-import os, sys, asyncio, importlib, subprocess, json
+import os, sys, asyncio, importlib, subprocess, json, csv
 os.environ['SDL_VIDEODRIVER'] = 'dummy'
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 YAMLS = {
     'cbba': [
-        'configs/static/cbba/cbba.yaml',
-        'configs/static/cbba/cenwrapper_cbba.yaml',
-        'configs/static/cbba/sga.yaml',
+        ('dec',      'configs/static/cbba/cbba.yaml'),
+        ('wrapper',  'configs/static/cbba/cenwrapper_cbba.yaml'),
+        ('baseline', 'configs/static/cbba/sga.yaml'),
     ],
     'grape': [
-        'configs/static/grape/grape.yaml',
-        'configs/static/grape/cenwrapper_grape.yaml',
-        'configs/static/grape/cen_grape.yaml',
+        ('dec',      'configs/static/grape/grape.yaml'),
+        ('wrapper',  'configs/static/grape/cenwrapper_grape.yaml'),
+        ('baseline', 'configs/static/grape/cen_grape.yaml'),
     ],
     'hungarian': [
-        'configs/static/hungarian/dec_hungarian.yaml',
-        'configs/static/hungarian/cenwrapper_hungarian.yaml',
-        'configs/static/hungarian/hungarian.yaml',
+        ('dec',      'configs/static/hungarian/dec_hungarian.yaml'),
+        ('wrapper',  'configs/static/hungarian/cenwrapper_hungarian.yaml'),
+        ('baseline', 'configs/static/hungarian/hungarian.yaml'),
     ],
 }
 
 SCEN_ROOT = 'scenarios/pygame/features/cen_wrapper'
+DATA_DIR = os.path.join(SCEN_ROOT, 'experiments', 'data')
+OUTPUT_CSV = os.path.join(DATA_DIR, 'exp1_static_results.csv')
+
 
 # Pick seed count from CLI (default: 1 seed; e.g. `--seeds=6` runs seeds 1..6)
 def _parse_seeds():
@@ -93,28 +101,63 @@ asyncio.run(run())
     return f'ERROR: {(out.stderr or "")[:300]}'
 
 
-def parse_sig(line):
+def parse_sig_and_ticks(line):
+    """Returns (sig_str, sig_list_of_tuples, ticks, running) or (None, None, None, None) on error."""
     if not line.startswith('RESULT_LINE:'):
-        return '<error>'
+        return None, None, None, None
     try:
         end_idx = line.index(':TICKS:')
-        return line[len('RESULT_LINE:'):end_idx]
+        sig_str = line[len('RESULT_LINE:'):end_idx]
+        rest = line[end_idx + len(':TICKS:'):]
+        ticks_str, _, running_str = rest.partition(':RUNNING:')
+        sig_list = eval(sig_str)  # safe: produced by our own subprocess via repr()
+        return sig_str, sig_list, int(ticks_str), running_str.strip() == 'True'
     except Exception:
-        return '<parse error>'
+        return None, None, None, None
 
 
-# results[seed][yaml_path] = result_line
+# results[seed][(algo, mode)] = result_line
 results = {seed: {} for seed in SEEDS}
 
 for seed in SEEDS:
     print(f'\n\n###########  SEED = {seed}  ###########')
-    for algo, paths in YAMLS.items():
+    for algo, mode_paths in YAMLS.items():
         print(f'\n=== {algo} (seed={seed}) ===')
-        for p in paths:
-            print(f'  running {p} ...')
+        for mode, p in mode_paths:
+            print(f'  running [{mode}] {p} ...')
             r = run_one(p, seed)
-            results[seed][p] = r
+            results[seed][(algo, mode)] = r
             print(f'    -> {r[:160]}')
+
+
+# ─────────────────────  Write raw CSV  ─────────────────────
+os.makedirs(DATA_DIR, exist_ok=True)
+csv_rows = []
+for seed in SEEDS:
+    for algo, mode_paths in YAMLS.items():
+        for mode, _ in mode_paths:
+            line = results[seed][(algo, mode)]
+            sig_str, sig_list, ticks, running = parse_sig_and_ticks(line)
+            if sig_list is None:
+                csv_rows.append({
+                    'seed': seed, 'algo': algo, 'mode': mode,
+                    'agent_id': -1, 'bundle': '<error>',
+                    'ticks': '', 'running': '', 'error': line[:200],
+                })
+                continue
+            for agent_id, bundle in sig_list:
+                csv_rows.append({
+                    'seed': seed, 'algo': algo, 'mode': mode,
+                    'agent_id': agent_id,
+                    'bundle': '|'.join(str(t) for t in bundle),  # e.g. "1|15|45|10|6"
+                    'ticks': ticks, 'running': running, 'error': '',
+                })
+
+with open(OUTPUT_CSV, 'w', encoding='utf-8', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['seed', 'algo', 'mode', 'agent_id', 'bundle', 'ticks', 'running', 'error'])
+    writer.writeheader()
+    writer.writerows(csv_rows)
+print(f'\nRaw assignments written → {OUTPUT_CSV} ({len(csv_rows)} rows)')
 
 
 # ─────────────────────  SUMMARY: per-algo across seeds  ─────────────────────
@@ -122,11 +165,14 @@ print('\n\n' + '=' * 70)
 print(f'   SUMMARY - 3-way match per algorithm, across {len(SEEDS)} seed(s)')
 print('=' * 70)
 
-for algo, paths in YAMLS.items():
+for algo, mode_paths in YAMLS.items():
     print(f'\n[{algo}]')
     seed_status = []
     for seed in SEEDS:
-        sigs = [parse_sig(results[seed][p]) for p in paths]
+        sigs = []
+        for mode, _ in mode_paths:
+            sig_str, _, _, _ = parse_sig_and_ticks(results[seed][(algo, mode)])
+            sigs.append(sig_str if sig_str is not None else '<error>')
         match = len(set(sigs)) == 1 and not any(s.startswith('<') for s in sigs)
         seed_status.append((seed, match, sigs))
     overall = all(m for _, m, _ in seed_status)
@@ -136,5 +182,5 @@ for algo, paths in YAMLS.items():
         seed_flag = '[OK]' if match else '[X]'
         print(f'    seed={seed} {seed_flag}')
         if not match:
-            for p, s in zip(paths, sigs):
-                print(f'      {os.path.basename(p):30s} -> {s[:110]}')
+            for (mode, p), s in zip(mode_paths, sigs):
+                print(f'      [{mode:8s}] {os.path.basename(p):30s} -> {s[:110]}')

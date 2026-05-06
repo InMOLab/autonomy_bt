@@ -286,7 +286,8 @@ def stats_section_exp1(df, delta_rel=0.05):
     """Returns full markdown block of TOST + Wilcoxon tables for Exp 2."""
     out = []
     out.append('## Statistical tests (Exp 2, completed runs only)\n')
-    out.append(f'Sample size: 100 seeds (paired by seed for mission-level, by (seed, agent_id) for agent-level).\n')
+    n_seeds = df['seed'].nunique() if 'seed' in df.columns else 'N/A'
+    out.append(f'Sample size: {n_seeds} seeds (paired by seed for mission-level, by (seed, agent_id) for agent-level).\n')
 
     out.append('### TOST — equivalence test for mission-level metrics')
     out.append('Two one-sided t-tests; equivalence at margin δ = ' f'{delta_rel*100:.0f}% '
