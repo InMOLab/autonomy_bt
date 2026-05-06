@@ -20,6 +20,15 @@ class DistributedHungarian:
 
         self.assigned_task = None
 
+        # Initialise outbox 
+        self.agent.message_to_share = {
+            'agent_id': self.agent.agent_id,
+            'agents_info': [],
+            'tasks_info': [],
+            'assigned_task_id': None,
+            'updated_at': time.time(),
+        }
+
     # ==============================================================
     # Main Decision Logic
     # ==============================================================
