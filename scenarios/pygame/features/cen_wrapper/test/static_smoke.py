@@ -29,8 +29,13 @@ YAMLS = {
 
 SCEN_ROOT = 'scenarios/pygame/features/cen_wrapper'
 
-# Pick seed mode from CLI (default: 1 seed)
-SEEDS = [1, 2, 3, 4] if any(a == '--seeds=4' for a in sys.argv[1:]) else [1]
+# Pick seed count from CLI (default: 1 seed; e.g. `--seeds=6` runs seeds 1..6)
+def _parse_seeds():
+    for a in sys.argv[1:]:
+        if a.startswith('--seeds='):
+            return list(range(1, int(a.split('=', 1)[1]) + 1))
+    return [1]
+SEEDS = _parse_seeds()
 
 
 def run_one(yaml_rel, seed):
@@ -104,7 +109,7 @@ for seed in SEEDS:
 
 # ─────────────────────  SUMMARY: per-algo across seeds  ─────────────────────
 print('\n\n' + '=' * 70)
-print('   SUMMARY - 3-way match per algorithm, across 4 seeds')
+print(f'   SUMMARY - 3-way match per algorithm, across {len(SEEDS)} seed(s)')
 print('=' * 70)
 
 for algo, paths in YAMLS.items():
