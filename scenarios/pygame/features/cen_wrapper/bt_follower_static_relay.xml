@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Follower BT — Static mode with mesh-relay conflict mitigation (Exp 4).
+
+  Asymmetric mesh-relay design (cen and dec each carry their own piece
+  of the bridge):
+
+    cen branch (in-range follower):
+      ApplyCenTask          – adopt leader's broadcast as primary task,
+                              also seeds outbox with task_allocations
+                              for further mesh propagation.
+      RelayDecMessages      – cen has no dec MRTA plugin so its outbox
+                              would otherwise carry no consensus payload.
+                              Pack incoming dec-peer msgs into
+                              `relayed_messages` so cen acts as a bridge
+                              between fragmented dec clusters.
+
+    dec branch (out-of-range follower):
+      UnpackRelayedMessages – flatten any `relayed_messages` carried by
+                              incoming peer messages back into
+                              `messages_received`, so the dec plugin
+                              (CBBA / dec_hungarian / GRAPE) sees relayed
+                              peers as if direct.
+      FilterClaimedTasks    – drop cen-claimed tasks/agents/leader from
+                              the local view (uses leader's TA bundles
+                              already extracted).
+      AssignTask            – run dec MRTA; plugin's broadcast IS its
+                              own semantic relay (peers' bid/partition
+                              info gossips through).
+      ForwardCenAllocation  – also forward leader's TA into outbox so
+                              dec→dec chains can carry it without a
+                              cen bridge in between.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <Sequence>
+        <IsTaskAssigned/>
+        <Halt/>
+      </Sequence>
+    </Parallel>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="ApplyCenTask"
+            editable="true"/>
+    <Action ID="AssignTask"
+            editable="true"/>
+    <Action ID="FilterClaimedTasks"
+            editable="true"/>
+    <Action ID="ForwardCenAllocation"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="Halt"
+            editable="true"/>
+    <Action ID="RelayDecMessages"
+            editable="true"/>
+    <Action ID="UnpackRelayedMessages"
+            editable="true"/>
+    <Condition ID="IsConnectedWithLeader"
+               editable="true"/>
+    <Condition ID="IsTaskAssigned"
+               editable="true"/>
+  </TreeNodesModel>
+
+</root>

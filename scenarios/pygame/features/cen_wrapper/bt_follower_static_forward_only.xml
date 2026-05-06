@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Follower BT — Static mode, ablation case (Relay OFF, Forward ON) (Exp 3).
+
+  In-range cen-followers AND out-of-range dec-followers re-publish the
+  leader's `central_plan` into their own outbox, so the cen plan can travel
+  through dec→dec chains. Dec-followers then see cen claims via
+  FilterClaimedTasks and avoid them.
+
+  However, cen-followers do NOT bundle dec-peer messages into
+  `relayed_messages`, so two dec clusters separated by a cen region cannot
+  exchange dec consensus. Within each dec cluster the dec MRTA still
+  converges, but two dec clusters may pick the same task.
+
+  Compare against:
+    bt_follower_static.xml             — Relay OFF, Forward OFF (baseline)
+    bt_follower_static_relay_only.xml  — Relay ON, Forward OFF
+    bt_follower_static_relay.xml       — Relay ON, Forward ON (full proposal)
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <Sequence>
+        <IsTaskAssigned/>
+        <Halt/>
+      </Sequence>
+    </Parallel>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="ApplyCenTask"
+            editable="true"/>
+    <Action ID="AssignTask"
+            editable="true"/>
+    <Action ID="FilterClaimedTasks"
+            editable="true"/>
+    <Action ID="ForwardCenAllocation"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="Halt"
+            editable="true"/>
+    <Condition ID="IsConnectedWithLeader"
+               editable="true"/>
+    <Condition ID="IsTaskAssigned"
+               editable="true"/>
+  </TreeNodesModel>
+
+</root>

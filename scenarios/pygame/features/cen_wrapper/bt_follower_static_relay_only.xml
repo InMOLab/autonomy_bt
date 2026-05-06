@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Follower BT — Static mode, ablation case (Relay ON, Forward OFF) (Exp 3).
+
+  Cen-followers bridge fragmented dec clusters by packing dec-peer messages
+  into `relayed_messages`, but they do NOT re-broadcast the leader's
+  central_plan. Out-of-range followers therefore see other dec peers via the
+  cen bridge, but never learn about cen claims, so dec MRTA may still pick
+  cen-claimed tasks.
+
+  Compare against:
+    bt_follower_static.xml             — Relay OFF, Forward OFF (baseline)
+    bt_follower_static_forward_only.xml — Relay OFF, Forward ON
+    bt_follower_static_relay.xml       — Relay ON, Forward ON (full proposal)
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <RelayDecMessages/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <AssignTask/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <Sequence>
+        <IsTaskAssigned/>
+        <Halt/>
+      </Sequence>
+    </Parallel>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="ApplyCenTask"
+            editable="true"/>
+    <Action ID="AssignTask"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="Halt"
+            editable="true"/>
+    <Action ID="RelayDecMessages"
+            editable="true"/>
+    <Action ID="UnpackRelayedMessages"
+            editable="true"/>
+    <Condition ID="IsConnectedWithLeader"
+               editable="true"/>
+    <Condition ID="IsTaskAssigned"
+               editable="true"/>
+  </TreeNodesModel>
+
+</root>
