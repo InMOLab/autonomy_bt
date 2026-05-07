@@ -5,9 +5,9 @@ ends up with non-zero conflicts. Radii / leader position are CLI flags so
 you can sweep parameter space interactively.
 
 Usage (from project root, autonomy_bt/):
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/_dev_viz_boundary.py \
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_viz_boundary.py \
         --algo=hungarian --condition=full --seed=9
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/_dev_viz_boundary.py \
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_viz_boundary.py \
         --algo=cbba --condition=forward_only --seed=3 \
         --leader-radius=400 --follower-radius=500
 
@@ -32,7 +32,7 @@ CONDITIONS = {
     'baseline':     'bt_follower_static.xml',
     'relay_only':   'bt_follower_static_relay_only.xml',
     'forward_only': 'bt_follower_static_forward_only.xml',
-    'full':         'bt_follower_static_relay.xml',
+    'full':         'bt_follower_static_full.xml',
 }
 
 

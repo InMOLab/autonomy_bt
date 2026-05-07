@@ -5,9 +5,9 @@ unassigned or overassigned tasks. Each run capped at MAX_TICKS so a
 broken setup doesn't hang.
 
 Usage (from project root, autonomy_bt/):
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/_dev_quick_check_boundary.py \
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_quick_check_boundary.py \
         --algo=hungarian --condition=full
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/_dev_quick_check_boundary.py \
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_quick_check_boundary.py \
         --algo=cbba --condition=full --seeds=20
 
 Exit code 0 if all seeds clean, 1 on first failing seed (with detail printed).
@@ -35,7 +35,7 @@ CONDITIONS = {
     'baseline':     'bt_follower_static.xml',
     'relay_only':   'bt_follower_static_relay_only.xml',
     'forward_only': 'bt_follower_static_forward_only.xml',
-    'full':         'bt_follower_static_relay.xml',
+    'full':         'bt_follower_static_full.xml',
 }
 
 

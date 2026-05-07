@@ -9,8 +9,8 @@ Iterates over (FOLLOWER_RADIUS, condition, algo, seed) and records
 bundle_unclaimed + bundle_overclaimed at static convergence.
 
 Usage (from project root, autonomy_bt/):
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/_dev_sweep_follower_radius.py
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/_dev_sweep_follower_radius.py --seeds=5
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_sweep_follower_radius.py
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_sweep_follower_radius.py --seeds=5
 """
 import argparse
 import json
@@ -22,8 +22,8 @@ import time
 os.environ['SDL_VIDEODRIVER'] = 'dummy'
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
-# Reuse exp3 setup
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Reuse exp3 setup (lives in parent scripts/ folder)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from exp3_boundary_conflicts import (
     CHILD_TEMPLATE, ALGOS, CONDITIONS, LEADER_RADIUS, LEADER_POSITION,
     SCEN_ROOT, MAX_TICKS,
