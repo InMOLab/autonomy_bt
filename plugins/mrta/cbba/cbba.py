@@ -237,6 +237,7 @@ class CBBA:
                         self.y[task_id] = float('-inf')
                         self.z[task_id] = None
                 self.bundle = []
+                self.path = []
 
         # # Rebid check (Strict version): recalculate marginal bid for every task in path. If any marginal worsened (own move OR target task moved), abandon the entire bundle and rebuild. 
         # if self.path:
