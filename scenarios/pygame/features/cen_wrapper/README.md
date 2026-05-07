@@ -56,7 +56,7 @@ Interactive keys during a run: `L` toggles the leader (despawn / respawn);
 | `bt_follower_static.xml` | follower, static mode — Halt once assigned (Exp 3 baseline: Relay OFF, Forward OFF) |
 | `bt_follower_static_relay_only.xml`   | static, Exp 3 ablation — Relay ON, Forward OFF |
 | `bt_follower_static_forward_only.xml` | static, Exp 3 ablation — Relay OFF, Forward ON |
-| `bt_follower_static_relay.xml`        | static, Exp 3 full — Relay ON, Forward ON (paper proposal) |
+| `bt_follower_static_full.xml`         | static, Exp 3 full — Relay ON, Forward ON (paper proposal) |
 | `bt_follower.xml`        | follower, `dynamic/partial` — local `IsTaskAssigned` gate then movement |
 | `bt_follower_global.xml` | follower, `dynamic/global` — `IsAllocationConverged` global gate before motion (fair cross-mode comparison) |
 

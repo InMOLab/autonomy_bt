@@ -273,7 +273,7 @@ def _freshness_score(msg):
 
 
 # =============================================================================
-# Cen branch (in-range follower) — order matches `bt_follower_static_relay.xml`
+# Cen branch (in-range follower) — order matches `bt_follower_static_full.xml`
 # =============================================================================
 
 class ApplyCenTask(SyncAction):
@@ -317,7 +317,11 @@ class RelayDecMessages(SyncAction):
 
     def _stage(self, agent, blackboard):
         self_agent_id = agent.agent_id
-        relayed_by_sender_id = {}  # peer agent_id → flattened message dict
+        relayed_by_sender_id = {}     # peer agent_id → flattened message dict
+        score_by_sender_id = {}       # peer agent_id → freshness score
+        direct_sender_ids = set()     # peers reached 1-hop direct (always trump nested)
+
+        # Pass 1: direct copies — always 1-hop, trump any prior/later nested.
         for message in agent.messages_received:
             sender_id = message.get('agent_id')
             if sender_id is None or sender_id == self_agent_id:
@@ -325,15 +329,27 @@ class RelayDecMessages(SyncAction):
             if message.get('type') == 'Leader':
                 continue
             relayed_by_sender_id[sender_id] = _strip_nested_relay(message)
-            # Splice nested relays so a 2-hop dec source can reach us.
+            score_by_sender_id[sender_id] = _freshness_score(message)
+            direct_sender_ids.add(sender_id)
+
+        # Pass 2: nested copies — direct trumps nested; among nested-only peers
+        # pick the highest freshness score (otherwise iteration order can let a
+        # stale snapshot win and propagate forever).
+        for message in agent.messages_received:
+            sender_id = message.get('agent_id')
             for nested_message in message.get('relayed_messages', []):
                 nested_sender_id = nested_message.get('agent_id')
                 if (nested_sender_id is None
                         or nested_sender_id == self_agent_id
                         or nested_sender_id == sender_id):
                     continue
-                if nested_sender_id not in relayed_by_sender_id:
+                if nested_sender_id in direct_sender_ids:
+                    continue  # direct trumps nested
+                nested_score = _freshness_score(nested_message)
+                if (nested_sender_id not in relayed_by_sender_id
+                        or nested_score > score_by_sender_id[nested_sender_id]):
                     relayed_by_sender_id[nested_sender_id] = _strip_nested_relay(nested_message)
+                    score_by_sender_id[nested_sender_id] = nested_score
 
         agent.message_to_share['relayed_messages'] = list(relayed_by_sender_id.values())
         agent.message_to_share['updated_at'] = time.time()
@@ -341,7 +357,7 @@ class RelayDecMessages(SyncAction):
 
 
 # =============================================================================
-# Dec branch (out-of-range follower) — order matches `bt_follower_static_relay.xml`
+# Dec branch (out-of-range follower) — order matches `bt_follower_static_full.xml`
 # =============================================================================
 
 class UnpackRelayedMessages(SyncAction):

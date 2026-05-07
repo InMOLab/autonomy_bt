@@ -5,7 +5,7 @@
   baseline     — Relay OFF, Forward OFF  (bt_follower_static.xml)
   relay_only   — Relay ON,  Forward OFF  (bt_follower_static_relay_only.xml)
   forward_only — Relay OFF, Forward ON   (bt_follower_static_forward_only.xml)
-  full         — Relay ON,  Forward ON   (bt_follower_static_relay.xml)
+  full         — Relay ON,  Forward ON   (bt_follower_static_full.xml)
 
 Run from project root (autonomy_bt/):
     python scenarios/pygame/features/cen_wrapper/experiments/scripts/analyze_boundary.py

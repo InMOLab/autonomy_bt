@@ -15,7 +15,7 @@
   Compare against:
     bt_follower_static.xml             — Relay OFF, Forward OFF (baseline)
     bt_follower_static_relay_only.xml  — Relay ON, Forward OFF
-    bt_follower_static_relay.xml       — Relay ON, Forward ON (full proposal)
+    bt_follower_static_full.xml        — Relay ON, Forward ON (full proposal)
 -->
 <root BTCPP_format="4">
   <BehaviorTree ID="space-simulator">

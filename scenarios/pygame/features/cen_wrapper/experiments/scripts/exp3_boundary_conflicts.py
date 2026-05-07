@@ -6,7 +6,7 @@ mechanisms (RelayDecMessages × ForwardCenAllocation) independently:
   baseline     — Relay OFF, Forward OFF  (bt_follower_static.xml)
   relay_only   — Relay ON,  Forward OFF  (bt_follower_static_relay_only.xml)
   forward_only — Relay OFF, Forward ON   (bt_follower_static_forward_only.xml)
-  full         — Relay ON,  Forward ON   (bt_follower_static_relay.xml)
+  full         — Relay ON,  Forward ON   (bt_follower_static_full.xml)
 
 Demonstrates that:
   1. With a small Leader.communication_radius (boundary exists), in-range
@@ -64,7 +64,7 @@ CONDITIONS = {
     'baseline':     'bt_follower_static.xml',              # Relay OFF, Forward OFF
     'relay_only':   'bt_follower_static_relay_only.xml',   # Relay ON,  Forward OFF
     'forward_only': 'bt_follower_static_forward_only.xml', # Relay OFF, Forward ON
-    'full':         'bt_follower_static_relay.xml',        # Relay ON,  Forward ON
+    'full':         'bt_follower_static_full.xml',         # Relay ON,  Forward ON
 }
 DEFAULT_SEEDS = 10
 MAX_TICKS = 50000

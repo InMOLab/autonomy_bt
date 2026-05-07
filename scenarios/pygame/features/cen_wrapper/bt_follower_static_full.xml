@@ -30,6 +30,11 @@
       ForwardCenAllocation  – also forward leader's TA into outbox so
                               dec→dec chains can carry it without a
                               cen bridge in between.
+      RelayDecMessages      – dec also relays peer messages so dec→dec
+                              chains can bridge dec agents that are out
+                              of every cen agent's communication range
+                              (cen-only relay misses such "dec islands"
+                              — see Exp 3 seed 81 validation).
 -->
 <root BTCPP_format="4">
   <BehaviorTree ID="space-simulator">
@@ -48,6 +53,7 @@
           <FilterClaimedTasks/>
           <AssignTask/>
           <ForwardCenAllocation/>
+          <RelayDecMessages/>
         </ReactiveSequence>
       </ReactiveFallback>
       <Sequence>
