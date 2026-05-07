@@ -2,6 +2,10 @@ from core.utils import config
 from platforms.pygame.utils_pygame import merge_dicts
 # MY_PARAMETER = config['decision_making']['my_decision_making_plugin']['my_parameter']
 
+LAMBDA = 0.999
+AGENT_SPEED = 0.5
+AGENT_WORK_RATE = 0.2
+
 # Define decision-making class
 class CBAA:
     def __init__(self, agent):
@@ -110,10 +114,7 @@ class CBAA:
     def calculate_score(self, task):
         distance_to_task = (self.agent.position - task.position).length() - task.radius
         # Time-discounted reward
-        LAMBDA = 0.999
-        AGENT_SPEED = 0.5
-        AGENT_WORK_RATE = 0.2
-        expected_reward = LAMBDA**(distance_to_task/AGENT_SPEED)          
+        expected_reward = LAMBDA**(distance_to_task/AGENT_SPEED)
         return expected_reward
     
     def update_dict_based_on_comparison(my_dict, other_dict):

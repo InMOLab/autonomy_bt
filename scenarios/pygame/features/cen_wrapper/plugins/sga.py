@@ -5,6 +5,7 @@ from core.utils import config
 
 LAMBDA = config['decision_making']['CBBA']['task_reward_discount_factor']
 MAX_TASKS_PER_AGENT = config['decision_making']['CBBA']['max_tasks_per_agent']
+AGENT_SPEED = 0.5  
 
 
 class SGA:
@@ -206,11 +207,11 @@ class SGA:
         
         current_position = agent.position
         expected_reward_from_task = 0
-        cumulative_time = 0
+        distance_to_next_task_from_start = 0
         for task in path:
             next_position = pygame.Vector2(task.position)
-            cumulative_time += current_position.distance_to(next_position)  # / agent.max_speed # + task.amount / agent.work_rate
-            expected_reward_from_task += LAMBDA**cumulative_time
+            distance_to_next_task_from_start += current_position.distance_to(next_position)
+            expected_reward_from_task += LAMBDA**(distance_to_next_task_from_start / AGENT_SPEED)
             current_position = next_position
 
         return expected_reward_from_task

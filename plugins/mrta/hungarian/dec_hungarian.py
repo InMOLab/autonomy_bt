@@ -7,6 +7,7 @@ from core.utils import config, extract_agent_id, extract_task_id
 # Configuration
 LAMBDA = config['decision_making']['Hungarian']['task_reward_discount_factor']
 DUMMY_COST = config['decision_making']['Hungarian']['dummy_cost']
+AGENT_SPEED = 0.5  # used in the discounted-reward cost function
 
 
 class DistributedHungarian:
@@ -113,8 +114,6 @@ class DistributedHungarian:
     # Centralised Hungarian Logic
     # ==============================================================
 
-    AGENT_SPEED = 0.5  # used in the discounted-reward cost function
-
     def _run_centralized_hungarian(self):
         """Build the cost matrix from perceived_agents/perceived_tasks,
         solve via scipy's Hungarian, and return *this* agent's assigned
@@ -133,7 +132,7 @@ class DistributedHungarian:
             task_pos = np.array([[t.position.x, t.position.y] for t in local_tasks])
             diff = agent_pos[:, np.newaxis, :] - task_pos[np.newaxis, :, :]
             distances = np.sqrt((diff ** 2).sum(axis=2))
-            weights[:num_agents, :num_tasks] = 1.0 / (LAMBDA ** (distances / self.AGENT_SPEED))
+            weights[:num_agents, :num_tasks] = 1.0 / (LAMBDA ** (distances / AGENT_SPEED))
 
         # Solve. `linear_sum_assignment` minimises cost
         w = np.where(np.isinf(weights), 1e9, weights)

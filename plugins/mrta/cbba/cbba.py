@@ -10,6 +10,7 @@ LAMBDA = config['decision_making']['CBBA']['task_reward_discount_factor']
 WINNING_BID_CANCEL = config['decision_making']['CBBA']['winning_bid_cancel']
 NO_BUNDLE_DURATION = config['decision_making']['CBBA']['acceptable_empty_bundle_duration']
 FIRST_TASK_CONVERGENCE = config['decision_making']['CBBA'].get('first_task_convergence', False)
+AGENT_SPEED = 0.5
 
 
 class CBBA:
@@ -455,8 +456,7 @@ class CBBA:
             next_position = pygame.Vector2(task.position)
             distance_to_next_task_from_start += current_position.distance_to(next_position)
             # Time-discounted reward
-            AGENT_SPEED = 0.5
-            expected_reward_from_task += LAMBDA**(distance_to_next_task_from_start/AGENT_SPEED)         
+            expected_reward_from_task += LAMBDA**(distance_to_next_task_from_start/AGENT_SPEED)
             # expected_reward_from_task += (task.amount - (distance_to_next_task_from_start/self.agent.max_speed + task.amount/self.agent.work_rate))
             current_position = next_position
 
