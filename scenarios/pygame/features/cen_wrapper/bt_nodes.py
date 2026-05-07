@@ -135,10 +135,16 @@ class IsAllocationConverged(SyncCondition):
     def _check(self, agent, blackboard):
         def as_bundle(outbox):
             bundle = outbox.get('planned_tasks_id')
-            if bundle is not None:
-                return list(bundle)
-            primary = outbox.get('assigned_task_id')
-            return [primary] if primary is not None else []
+            primary = list(bundle) if bundle is not None else [outbox.get('assigned_task_id')]
+            # GRAPE-only: outbox is rebound only on Phase 2 improvement, so
+            # `updated_at` is a reliable per-agent iteration counter — append it
+            # to make snapshot equality detect "no improvement for 2 ticks".
+            # CBBA / Hungarian rebind every tick (consensus/perception always
+            # broadcast), so `updated_at` is useless for them; their task_id
+            # alone is enough.
+            if 'evolution_number' in outbox:
+                primary.append(outbox.get('updated_at'))
+            return primary
 
         leader_team = None
         peers_seen = {agent.agent_id}
