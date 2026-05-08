@@ -5,21 +5,15 @@ Used as a *comparison baseline* against `CentralisationWrapper +
 AssignTask(GRAPE)`. Loaded by the `AssignCenTask` BT node via
 `decision_making.cen_plugin` in yaml — same plugin pattern as the
 dec-side plugins.
-
-NOTE: distance-based partition init / re-init (yaml options
-`initialize_partition` and `reinitialize_partition_on_completion`) are
-*intentionally* not honoured here, mirroring the shared
-`plugins/mrta/grape/grape.GRAPE` which also ignores those options. This
-keeps the centralised baseline algorithmically aligned with the dec
-plugin so the 3-way equivalence experiment is apples-to-apples.
 """
 import time
 
 from core.utils import config
 
 
-COST_WEIGHT_FACTOR = config['decision_making']['GRAPE']['cost_weight_factor']
 SOCIAL_INHIBITION_FACTOR = config['decision_making']['GRAPE']['social_inhibition_factor']
+LAMBDA = config['decision_making']['GRAPE']['task_reward_discount_factor']
+AGENT_SPEED = 0.5  # matches CBBA / Hungarian for utility unification
 
 
 class CenGRAPE:
@@ -142,7 +136,10 @@ class CenGRAPE:
             num_collaborator += 1
 
         distance = (other_agent.position - task.position).length()
-        utility = task.amount / (num_collaborator) - COST_WEIGHT_FACTOR * distance * (num_collaborator ** SOCIAL_INHIBITION_FACTOR)
+        # Time-discounted reward divided by coalition-size penalty.
+        # Aligns GRAPE's utility shape with CBBA / Hungarian (lambda^(d/v))
+        # while preserving GRAPE's social-inhibition coalition-formation pressure.
+        utility = (LAMBDA ** (distance / AGENT_SPEED)) / (num_collaborator ** SOCIAL_INHIBITION_FACTOR)
         return utility
 
     def discard_agent_from_coalition(self, agent_id, task_id):

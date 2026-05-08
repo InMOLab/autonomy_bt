@@ -5,11 +5,9 @@ decision_making:
   plugin: scenarios.pygame.features.cen_wrapper.plugins.grape_deterministic.GRAPE
   cen_plugin: scenarios.pygame.features.cen_wrapper.plugins.cen_grape.CenGRAPE
   GRAPE:
-    cost_weight_factor: 1.0
-    social_inhibition_factor: 0
-    initialize_partition: Distance # Options: None; Distance      
-    reinitialize_partition_on_completion: Distance # Options: None; Distance; 
-    local_convergence: True
+    cost_weight_factor: 1.0   # legacy; unused by current utility formula
+    social_inhibition_factor: 1   # alpha; coalition inhibition exponent in utility = lambda^(d/v) / |C|^alpha
+    task_reward_discount_factor: 0.999  # lambda; utility = lambda^(d/v) / |C|^alpha
 
 case_name: CEN GRAPE (partial)
 setup: GRAPE_N40_M10_PARTIAL
