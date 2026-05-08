@@ -1,16 +1,20 @@
-"""Visual reproduction of Exp 1 CBBA seed=44 — the only path-order mismatch
-seed in the 100-seed static equivalence run. Same task set across modes,
-but `baseline` (sga) lands on a different visit order than dec / wrapper:
-
-  dec/wrapper agent 3:  bundle = (19, 10, 49, 40, 45)
-  baseline    agent 3:  bundle = (19, 10, 45, 49, 40)
-
-Pick the mode with --mode {dec, wrapper, baseline}.
+"""Visual reproduction of any Exp 1 CBBA static-mode seed for any of the
+three modes (dec / wrapper / baseline). Useful when CBBA dec ≠ SGA baseline
+on a particular seed — open two terminals, run with --mode dec in one and
+--mode baseline in the other, compare the path arrows agent-by-agent.
 
 Usage (from project root, autonomy_bt/):
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_inspect_cbba_static_seed44.py --mode dec
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_inspect_cbba_static_seed44.py --mode wrapper
-    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_inspect_cbba_static_seed44.py --mode baseline
+    # Run two terminals side-by-side for a CBBA-vs-SGA mismatch seed:
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_inspect_cbba_static.py --seed 1 --mode dec
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_inspect_cbba_static.py --seed 1 --mode baseline
+
+    # Wrapper version uses the same yaml chain as dec but routes through
+    # CentralisationWrapper — should match dec exactly.
+    python scenarios/pygame/features/cen_wrapper/experiments/scripts/inspect/_dev_inspect_cbba_static.py --seed 1 --mode wrapper
+
+Known mismatch seeds (CBBA dec/wrapper vs SGA baseline) from the 100-seed
+post-fix run: 1, 4, 11, 14, 28, 32, 39, 41, 73, 94 (task-set differs).
+seed=44 used to be a path-order-only mismatch under the older SGA formula.
 
 Close the pygame window to exit.
 """
