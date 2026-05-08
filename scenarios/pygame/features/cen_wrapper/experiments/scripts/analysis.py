@@ -29,13 +29,20 @@ MODE_ORDER = ['dec', 'wrapper', 'baseline']
 MODE_COLOR = {'dec': '#4C72B0', 'wrapper': '#DD8452', 'baseline': '#55A868'}
 
 EXP1_METRICS = [
+    # Utility-based performance metric
+    ('team_utility',              'Team utility (Σ λ^(d/v) / |C|^α)',     'mission'),
+    ('per_agent_utility',         'Per-agent utility',                    'agent'),
+    # Operational metrics — system-level
     ('mission_completion_time',   'Mission completion time (sim ticks)', 'mission'),
     ('total_distance_moved',      'Total distance moved (Σ followers)',  'mission'),
-    ('per_agent_distance_moved',  'Per-agent distance moved',            'agent'),
-    ('per_agent_task_amount_done','Per-agent task amount done',          'agent'),
     ('decision_phase_ticks',      'Decision phase ticks (until first motion)', 'mission'),
     ('movement_phase_ticks',      'Movement phase ticks (until mission complete)', 'mission'),
     ('wall_clock_seconds',        'Wall-clock (s)',                       'mission'),
+    ('decision_phase_wall_seconds', 'Decision phase wall-clock (s)',      'mission'),
+    ('movement_phase_wall_seconds', 'Movement phase wall-clock (s)',      'mission'),
+    # Operational metrics — agent-level
+    ('per_agent_distance_moved',  'Per-agent distance moved',            'agent'),
+    ('per_agent_task_amount_done','Per-agent task amount done',          'agent'),
 ]
 
 
@@ -289,7 +296,12 @@ def stats_section_exp1(df, delta_rel=0.05):
     n_seeds = df['seed'].nunique() if 'seed' in df.columns else 'N/A'
     out.append(f'Sample size: {n_seeds} seeds (paired by seed for mission-level, by (seed, agent_id) for agent-level).\n')
 
-    out.append('### TOST — equivalence test for mission-level metrics')
+    out.append('### TOST on team utility')
+    out.append('Within-algorithm utility-based equivalence: `team_utility = Σ λ^(d/v) / |C|^α` '
+               'across (agent, task) completion events. **✓** if `p_TOST < 0.05`.')
+    out.append(print_tost_table(df, 'team_utility', 'team_utility', delta_rel))
+
+    out.append('### Operational metric — TOST (system-level)')
     out.append('Two one-sided t-tests; equivalence at margin δ = ' f'{delta_rel*100:.0f}% '
                'of pooled mean. **✓** if `p_TOST < 0.05` (equivalence established within ±δ).')
     for metric in ('mission_completion_time', 'total_distance_moved'):
@@ -298,7 +310,7 @@ def stats_section_exp1(df, delta_rel=0.05):
     out.append('### Paired Wilcoxon — agent-level paired comparison')
     out.append('Per (seed, agent_id) pair. Two-sided. **✓** if `p > 0.05` '
                '(no statistically detectable median difference, supporting equivalence).')
-    for metric in ('per_agent_distance_moved', 'per_agent_task_amount_done'):
+    for metric in ('per_agent_utility', 'per_agent_distance_moved', 'per_agent_task_amount_done'):
         out.append(print_wilcoxon_table(df, metric, metric))
     return '\n'.join(out)
 
