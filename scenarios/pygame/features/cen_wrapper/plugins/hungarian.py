@@ -64,12 +64,12 @@ class Hungarian:
             task_pos = np.array([[t.position.x, t.position.y] for t in tasks])
             diff = agent_pos[:, np.newaxis, :] - task_pos[np.newaxis, :, :]
             distances = np.sqrt((diff ** 2).sum(axis=2))
-            # cost = 1 / expected_reward;  expected_reward = LAMBDA ** (d / AGENT_SPEED)
-            weights[:num_agents, :num_tasks] = 1.0 / (LAMBDA ** (distances / AGENT_SPEED))
+            # reward = LAMBDA ** (d / AGENT_SPEED); maximised directly so the
+            # algorithm's optimisation target equals the unified utility.
+            weights[:num_agents, :num_tasks] = LAMBDA ** (distances / AGENT_SPEED)
 
-        # scipy minimises total cost; replace any inf with a large finite value.
-        w = np.where(np.isinf(weights), 1e9, weights)
-        row_ind, col_ind = linear_sum_assignment(w)
+        # scipy `maximize=True` maximises total reward; dummies (DUMMY_COST=0) are below any real reward in (0, 1].
+        row_ind, col_ind = linear_sum_assignment(weights, maximize=True)
 
         self.assigned_tasks = {}
         for i, j in zip(row_ind, col_ind):

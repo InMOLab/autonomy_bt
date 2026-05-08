@@ -125,18 +125,18 @@ class DistributedHungarian:
         num_tasks = len(local_tasks)
         n = max(num_agents, num_tasks)
 
-        # Cost matrix — distance-discounted reward; dummy rows/cols padded with DUMMY_COST.
+        # Reward matrix — distance-discounted reward (lambda^(d/v)); dummy rows/cols padded with DUMMY_COST (0).
+        # Maximised directly so the algorithm's optimisation target equals the unified utility.
         weights = np.full((n, n), DUMMY_COST, dtype=float)
         if num_agents > 0 and num_tasks > 0:
             agent_pos = np.array([[a.get('position').x, a.get('position').y] for a in local_agents])
             task_pos = np.array([[t.position.x, t.position.y] for t in local_tasks])
             diff = agent_pos[:, np.newaxis, :] - task_pos[np.newaxis, :, :]
             distances = np.sqrt((diff ** 2).sum(axis=2))
-            weights[:num_agents, :num_tasks] = 1.0 / (LAMBDA ** (distances / AGENT_SPEED))
+            weights[:num_agents, :num_tasks] = LAMBDA ** (distances / AGENT_SPEED)
 
-        # Solve. `linear_sum_assignment` minimises cost
-        w = np.where(np.isinf(weights), 1e9, weights)
-        row_ind, col_ind = linear_sum_assignment(w)
+        # Solve. `linear_sum_assignment(maximize=True)` maximises reward sum.
+        row_ind, col_ind = linear_sum_assignment(weights, maximize=True)
 
         # Pick out my own (agent_id == self.agent.agent_id) row's match.
         my_agent_id = self.agent.agent_id
