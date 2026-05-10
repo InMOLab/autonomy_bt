@@ -33,6 +33,7 @@ decision_making:
     social_inhibition_factor: 0.0        # mild – all group members should converge on same ST
     initialize_partition: Distance     # Options: None; Distance
     reinitialize_partition_on_completion: Distance
+    battery_aware: true                  # true -> S-RA (battery_ratio x urgency_factor); false -> Equal (base GRAPE)
 
   # ── Phase 2: Regular-Task allocation via DistributedHungarian ────
   Hungarian:

@@ -31,6 +31,7 @@ from core.utils import config
 
 COST_WEIGHT_FACTOR = config['decision_making']['GRAPE']['cost_weight_factor']
 SOCIAL_INHIBITION_FACTOR = config['decision_making']['GRAPE']['social_inhibition_factor']
+BATTERY_AWARE = config['decision_making']['GRAPE'].get('battery_aware', False)
 
 
 class GRAPE(_BaseGRAPE):
@@ -62,29 +63,27 @@ class GRAPE(_BaseGRAPE):
 
         distance = (self.agent.position - task.position).length()
 
-        # Battery-aware factors. battery may be None (not yet received from
-        # a real robot) → treat as 100 % so ratios stay neutral.
-        my_battery = getattr(self.agent, 'battery', None) or 100.0
-        all_agents = getattr(self.agent, 'agents_info', None) or [self.agent]
-        known_batteries = [
-            b for b in (getattr(a, 'battery', None) for a in all_agents) if b is not None
-        ]
-        max_battery = max(known_batteries) if known_batteries else 100.0
-        min_battery = min(known_batteries) if known_batteries else 0.0
-        sorted_batteries = sorted(known_batteries)
-        n = len(sorted_batteries)
-        if n == 0:
-            median_battery = 0.0
-        elif n % 2 == 1:
-            median_battery = sorted_batteries[n // 2]
+        if BATTERY_AWARE:
+            # battery may be None (not yet received from a real robot) → treat as 100 %
+            my_battery = getattr(self.agent, 'battery', None) or 100.0
+            all_agents = getattr(self.agent, 'agents_info', None) or [self.agent]
+            known_batteries = [
+                b for b in (getattr(a, 'battery', None) for a in all_agents) if b is not None
+            ]
+            max_battery = max(known_batteries) if known_batteries else 100.0
+            min_battery = min(known_batteries) if known_batteries else 0.0
+            sorted_batteries = sorted(known_batteries)
+            n = len(sorted_batteries)
+            median_battery = (0.0 if n == 0 else
+                              sorted_batteries[n // 2] if n % 2 == 1 else
+                              (sorted_batteries[n // 2 - 1] + sorted_batteries[n // 2]) / 2.0)
+
+        if BATTERY_AWARE:
+            battery_range = max_battery - min_battery
+            battery_ratio = ((my_battery - min_battery) / battery_range) if battery_range > 0.0 else 1.0
+            urgency_factor = (max_battery / median_battery) if median_battery > 0.0 else 1.0
+            reward = urgency_factor * battery_ratio * task.amount / num_collaborator
         else:
-            median_battery = (sorted_batteries[n // 2 - 1] + sorted_batteries[n // 2]) / 2.0
+            reward = task.amount / num_collaborator
 
-        battery_range = max_battery - min_battery
-        battery_ratio = ((my_battery - min_battery) / battery_range) if battery_range > 0.0 else 1.0
-        urgency_factor = (max_battery / median_battery) if median_battery > 0.0 else 1.0
-
-        return (
-            urgency_factor * battery_ratio * task.amount / num_collaborator
-            - COST_WEIGHT_FACTOR * distance * (num_collaborator ** SOCIAL_INHIBITION_FACTOR)
-        )
+        return reward - COST_WEIGHT_FACTOR * distance * (num_collaborator ** SOCIAL_INHIBITION_FACTOR)
