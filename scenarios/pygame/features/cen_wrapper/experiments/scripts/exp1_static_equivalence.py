@@ -172,57 +172,121 @@ def parse_sig_and_ticks(line):
         return None, None, None, None, None
 
 
-# results[seed][(algo, mode)] = result_line
+# ───────────────────  Resume support: skip already-done (seed, algo, mode)  ──
+FIELDNAMES = ['seed', 'algo', 'mode', 'agent_id', 'bundle', 'ticks', 'running', 'team_utility', 'error']
+
+
+def load_done_keys(csv_path):
+    """Returns set of (seed, algo, mode) already present in CSV."""
+    if not os.path.exists(csv_path):
+        return set()
+    done = set()
+    with open(csv_path, 'r', encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            done.add((int(row['seed']), row['algo'], row['mode']))
+    return done
+
+
+def append_rows(csv_path, rows):
+    new_file = not os.path.exists(csv_path)
+    with open(csv_path, 'a', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+        if new_file:
+            writer.writeheader()
+        writer.writerows(rows)
+
+
+def build_rows(seed, algo, mode, line):
+    sig_str, sig_list, ticks, running, utility = parse_sig_and_ticks(line)
+    if sig_list is None:
+        return [{
+            'seed': seed, 'algo': algo, 'mode': mode,
+            'agent_id': -1, 'bundle': '<error>',
+            'ticks': '', 'running': '', 'team_utility': '',
+            'error': line[:200],
+        }]
+    return [
+        {
+            'seed': seed, 'algo': algo, 'mode': mode,
+            'agent_id': agent_id,
+            'bundle': '|'.join(str(t) for t in bundle),
+            'ticks': ticks, 'running': running,
+            'team_utility': f'{utility:.6f}',
+            'error': '',
+        }
+        for agent_id, bundle in sig_list
+    ]
+
+
+os.makedirs(DATA_DIR, exist_ok=True)
+done_keys = load_done_keys(OUTPUT_CSV)
+if done_keys:
+    print(f'Resume: {len(done_keys)} (seed, algo, mode) entries already in {OUTPUT_CSV} — will skip')
+
+# results[seed][(algo, mode)] = result_line  (newly run only — for summary print)
 results = {seed: {} for seed in SEEDS}
+n_done_existing = len(done_keys)
+n_new = 0
 
 for seed in SEEDS:
     print(f'\n\n###########  SEED = {seed}  ###########')
     for algo, mode_paths in YAMLS.items():
         print(f'\n=== {algo} (seed={seed}) ===')
         for mode, p in mode_paths:
+            if (seed, algo, mode) in done_keys:
+                print(f'  [SKIP] [{mode}] {p} — already done')
+                continue
             print(f'  running [{mode}] {p} ...')
             r = run_one(p, seed)
             results[seed][(algo, mode)] = r
             print(f'    -> {r[:160]}')
+            append_rows(OUTPUT_CSV, build_rows(seed, algo, mode, r))
+            n_new += 1
 
-
-# ─────────────────────  Write raw CSV  ─────────────────────
-os.makedirs(DATA_DIR, exist_ok=True)
-csv_rows = []
-for seed in SEEDS:
-    for algo, mode_paths in YAMLS.items():
-        for mode, _ in mode_paths:
-            line = results[seed][(algo, mode)]
-            sig_str, sig_list, ticks, running, utility = parse_sig_and_ticks(line)
-            if sig_list is None:
-                csv_rows.append({
-                    'seed': seed, 'algo': algo, 'mode': mode,
-                    'agent_id': -1, 'bundle': '<error>',
-                    'ticks': '', 'running': '', 'team_utility': '',
-                    'error': line[:200],
-                })
-                continue
-            for agent_id, bundle in sig_list:
-                csv_rows.append({
-                    'seed': seed, 'algo': algo, 'mode': mode,
-                    'agent_id': agent_id,
-                    'bundle': '|'.join(str(t) for t in bundle),  # e.g. "1|15|45|10|6"
-                    'ticks': ticks, 'running': running,
-                    'team_utility': f'{utility:.6f}',
-                    'error': '',
-                })
-
-with open(OUTPUT_CSV, 'w', encoding='utf-8', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=['seed', 'algo', 'mode', 'agent_id', 'bundle', 'ticks', 'running', 'team_utility', 'error'])
-    writer.writeheader()
-    writer.writerows(csv_rows)
-print(f'\nRaw assignments written → {OUTPUT_CSV} ({len(csv_rows)} rows)')
+print(f'\n{n_new} new (seed, algo, mode) runs appended → {OUTPUT_CSV}'
+      f' ({n_done_existing} already done, skipped)')
 
 
 # ─────────────────────  SUMMARY: per-algo across seeds  ─────────────────────
+# Load CSV so summary covers both newly-run and already-done seeds.
+def _load_csv_summary(csv_path):
+    """Returns {(seed, algo, mode): (sig_str, utility)} from CSV."""
+    out = {}
+    if not os.path.exists(csv_path):
+        return out
+    # Group rows by (seed, algo, mode) → (bundle list, ticks, utility)
+    grouped = {}
+    with open(csv_path, 'r', encoding='utf-8', newline='') as f:
+        for row in csv.DictReader(f):
+            key = (int(row['seed']), row['algo'], row['mode'])
+            if row.get('error'):
+                grouped[key] = ('<error>', None)
+                continue
+            entry = grouped.setdefault(key, [])
+            agent_id = int(row['agent_id'])
+            bundle_str = row['bundle']
+            bundle = tuple(int(t) for t in bundle_str.split('|') if t)
+            try:
+                util = float(row['team_utility']) if row['team_utility'] else None
+            except ValueError:
+                util = None
+            entry.append((agent_id, bundle, util))
+    for key, val in grouped.items():
+        if isinstance(val, tuple):  # ('<error>', None)
+            out[key] = val
+        else:
+            sig = sorted([(a, b) for a, b, _ in val])
+            util = next((u for _, _, u in val if u is not None), None)
+            out[key] = (repr(sig), util)
+    return out
+
+
 print('\n\n' + '=' * 70)
 print(f'   SUMMARY - 3-way match per algorithm, across {len(SEEDS)} seed(s)')
 print('=' * 70)
+
+csv_summary = _load_csv_summary(OUTPUT_CSV)
 
 for algo, mode_paths in YAMLS.items():
     print(f'\n[{algo}]')
@@ -231,7 +295,7 @@ for algo, mode_paths in YAMLS.items():
         sigs = []
         utils = []
         for mode, _ in mode_paths:
-            sig_str, _, _, _, util = parse_sig_and_ticks(results[seed][(algo, mode)])
+            sig_str, util = csv_summary.get((seed, algo, mode), ('<missing>', None))
             sigs.append(sig_str if sig_str is not None else '<error>')
             utils.append(util)
         match = len(set(sigs)) == 1 and not any(s.startswith('<') for s in sigs)
