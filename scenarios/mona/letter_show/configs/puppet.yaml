@@ -25,8 +25,7 @@ scenario:
   environment: scenarios.mona.letter_show
 
 decision_making:
-  plugin: scenarios.mona.letter_show.plugins.cbba.CBBA
-  # plugin: scenarios.mona.letter_show.plugins.dec_hungarian.DistributedHungarian
+  plugin: scenarios.mona.letter_show.plugins.dec_hungarian.DistributedHungarian
 
   # ── Phase 1: Super-Task allocation via GRAPE ─────────────────────
   GRAPE:
@@ -34,19 +33,13 @@ decision_making:
     social_inhibition_factor: 0.0        # mild – all group members should converge on same ST
     initialize_partition: Distance     # Options: None; Distance
     reinitialize_partition_on_completion: Distance
+    battery_aware: true                  # true → S-RA (battery_ratio × urgency_factor); false → Equal (base GRAPE)
 
   # ── Phase 2: Regular-Task allocation via DistributedHungarian ────
-  # Hungarian:
-  #   task_reward_discount_factor: 0.999
-  #   epsilon: 1e-10
-  #   dummy_cost: 0.0
-
-  # ── Phase 2 (alternative): Regular-Task allocation via CBBA ──────
-  CBBA:
-    max_tasks_per_agent: 1
+  Hungarian:
     task_reward_discount_factor: 0.999
-    winning_bid_cancel: True
-    acceptable_empty_bundle_duration: 500   # sec
+    epsilon: 1e-10
+    dummy_cost: 0.0
 
 agents:
   behavior_tree_xml: default_bt.xml 
