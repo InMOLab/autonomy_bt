@@ -51,6 +51,24 @@ WRAPPER_YAMLS = {
 SWEEP_RADII = [2000, 1500, 1000, 750, 500, 250, 0]
 ZERO_SUBSTITUTE = 0.1  # actual value used in simulator when sweep value is 0
 
+# Utility constants — kept in sync with cen_grape / grape_deterministic /
+# dec_hungarian / cbba / sga modules.
+LAMBDA = 0.999
+AGENT_SPEED = 0.5
+ALPHA = 1  # GRAPE social_inhibition_factor (yaml). For CBBA/Hungarian
+           # |C|=1 always so 1^alpha=1 regardless — α value only matters for GRAPE.
+
+
+def compute_team_utility(events, algo):
+    """Sum lambda^(d/v) / |C|^alpha across (agent, task) completion events."""
+    U = 0.0
+    for ev in events:
+        d = ev['distance_moved']
+        c = max(ev.get('coalition_size', 1), 1)
+        r = LAMBDA ** (d / AGENT_SPEED)
+        U += r / (c ** ALPHA)
+    return U
+
 
 CHILD_TEMPLATE = r'''
 import os, sys, asyncio, json
@@ -88,7 +106,14 @@ import time as _time
 async def run():
     n = 0
     decision_phase_end = None
+    decision_wall_end = None
     wall_start = _time.perf_counter()
+
+    # Per-task-completion logging for utility-based performance metric.
+    seen_completed = set()
+    prev_assigned = {{a.agent_id: None for a in sim.agents if a.type == "Follower"}}
+    completion_events = []
+
     while sim.running and not sim.mission_completed and n < {max_ticks}:
         await bt_runner.step()
         sim.update_simulation()
@@ -97,8 +122,34 @@ async def run():
             if any(getattr(a, "distance_moved", 0) > 1e-9
                    for a in sim.agents if a.type == "Follower"):
                 decision_phase_end = n
+                decision_wall_end = _time.perf_counter()
+
+        # Detect newly-completed tasks; coalition = followers currently OR previously assigned.
+        for task in sim.tasks:
+            if task.completed and task.task_id not in seen_completed:
+                contributors = [a for a in sim.agents
+                                if a.type == "Follower"
+                                and (a.assigned_task_id == task.task_id
+                                     or prev_assigned.get(a.agent_id) == task.task_id)]
+                coalition_size = max(len(contributors), 1)
+                for a in contributors:
+                    completion_events.append({{
+                        "task_id": int(task.task_id),
+                        "agent_id": int(a.agent_id),
+                        "distance_moved": float(a.distance_moved),
+                        "coalition_size": coalition_size,
+                        "tick": n,
+                    }})
+                seen_completed.add(task.task_id)
+
+        for a in sim.agents:
+            if a.type == "Follower":
+                prev_assigned[a.agent_id] = a.assigned_task_id
+
     wall_elapsed = _time.perf_counter() - wall_start
     movement_phase = (n - decision_phase_end) if decision_phase_end is not None else None
+    decision_phase_wall = (decision_wall_end - wall_start) if decision_wall_end is not None else None
+    movement_phase_wall = (wall_elapsed - decision_phase_wall) if decision_phase_wall is not None else None
     payload = {{
         "ticks": n,
         "mission_completed": bool(sim.mission_completed),
@@ -106,6 +157,8 @@ async def run():
         "decision_phase_ticks": decision_phase_end,
         "movement_phase_ticks": movement_phase,
         "wall_clock_seconds": float(wall_elapsed),
+        "decision_phase_wall_seconds": decision_phase_wall,
+        "movement_phase_wall_seconds": movement_phase_wall,
         "per_agent": [
             {{
                 "agent_id": int(a.agent_id),
@@ -114,6 +167,7 @@ async def run():
             }}
             for a in sim.agents if a.type == "Follower"
         ],
+        "completion_events": completion_events,
     }}
     print("RESULT_JSON:" + json.dumps(payload))
 
@@ -212,12 +266,17 @@ def main():
                 dph = result.get('decision_phase_ticks')
                 mph = result.get('movement_phase_ticks')
                 wall = result.get('wall_clock_seconds', 0.0)
+                dphw = result.get('decision_phase_wall_seconds')
+                mphw = result.get('movement_phase_wall_seconds')
                 per_agent = result['per_agent']
+                completion_events = result.get('completion_events', [])
                 total_dist = sum(a['distance_moved'] for a in per_agent)
                 total_work = sum(a['task_amount_done'] for a in per_agent)
+                team_utility = compute_team_utility(completion_events, algo)
                 print(f'    OK ({elapsed:.1f}s) ticks={ticks} mc={mc} '
                       f'dph={dph} mph={mph} wall={wall:.1f}s '
-                      f'dist={total_dist:.0f} work={total_work:.0f}')
+                      f'dist={total_dist:.0f} work={total_work:.0f} '
+                      f'U={team_utility:.3f}')
 
                 base = {'seed': seed, 'algo': algo, 'leader_radius': radius}
                 rows = [
@@ -233,12 +292,26 @@ def main():
                      'value': float(mph) if mph is not None else float('nan'), 'agent_id': -1},
                     {**base, 'metric_name': 'wall_clock_seconds',
                      'value': float(wall), 'agent_id': -1},
+                    {**base, 'metric_name': 'decision_phase_wall_seconds',
+                     'value': float(dphw) if dphw is not None else float('nan'), 'agent_id': -1},
+                    {**base, 'metric_name': 'movement_phase_wall_seconds',
+                     'value': float(mphw) if mphw is not None else float('nan'), 'agent_id': -1},
+                    {**base, 'metric_name': 'team_utility',
+                     'value': float(team_utility), 'agent_id': -1},
                 ]
                 for a in per_agent:
                     rows.append({**base, 'metric_name': 'per_agent_distance_moved',
                                  'value': a['distance_moved'], 'agent_id': a['agent_id']})
                     rows.append({**base, 'metric_name': 'per_agent_task_amount_done',
                                  'value': a['task_amount_done'], 'agent_id': a['agent_id']})
+                # Per-agent utility: sum of contributions per agent.
+                per_agent_util = {}
+                for ev in completion_events:
+                    contrib = (LAMBDA ** (ev['distance_moved'] / AGENT_SPEED)) / (ev['coalition_size'] ** ALPHA)
+                    per_agent_util[ev['agent_id']] = per_agent_util.get(ev['agent_id'], 0.0) + contrib
+                for aid, u in per_agent_util.items():
+                    rows.append({**base, 'metric_name': 'per_agent_utility',
+                                 'value': float(u), 'agent_id': aid})
                 append_rows(OUTPUT_CSV, rows)
 
     elapsed = time.time() - t0
