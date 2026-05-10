@@ -38,20 +38,22 @@ import sys
 import time
 
 # === Experiment parameters (edit before re-run) ============================
-LEADER_RADIUS = 400            # override Leader.communication_radius
-                               # Default 400: seeds=1 shows forward_only ≈ full
-                               # (mesh fully connected so forward dominates),
-                               # but seeds=2 reveals dec-cluster fragmentation
-                               # where only `full` (Relay + Forward) drives
-                               # CBBA conflicts to 0 → paper-grade 4-case
-                               # ablation gets clean signal across seeds.
-FOLLOWER_RADIUS = 800          # follower mesh — must be large enough to keep
-                               # all followers in one connected component (so mesh
-                               # relay actually reaches everyone). Empirical: 600
-                               # → ~9/10 fully reached, 800 → 10/10. Below ~500
-                               # the mesh fragments into many isolated cliques
-                               # which masks the relay effect.
+LEADER_RADIUS = 500            # override Leader.communication_radius
+FOLLOWER_RADIUS = 500          # follower mesh radius — paired with a per-seed
+                               # connectivity precondition: seeds where the
+                               # all-followers (cen + dec, leader excluded)
+                               # union mesh fragments at this radius are
+                               # SKIPPED. This isolates the algorithm/mesh
+                               # mechanism contribution from topology luck.
 LEADER_POSITION = (700, 500)   # force leader to map center (boundary visibility)
+
+# Per-algo agent/task density overrides (Exp 3-only — yaml files unchanged).
+# Increasing follower count densifies the mesh so more seeds pass the
+# connectivity precondition while keeping the boundary effect informative.
+ALGO_OVERRIDES = {
+    'cbba':      {'follower_qty': 15, 'task_qty': 60, 'max_tasks_per_agent': 4},
+    'hungarian': {'follower_qty': 15, 'task_qty': 15},
+}
 ALGOS = {
     'cbba':      'configs/static/cbba/cenwrapper_cbba.yaml',
     'hungarian': 'configs/static/hungarian/cenwrapper_hungarian.yaml',
@@ -89,10 +91,13 @@ from core.utils import set_config
 set_config(r"{path}")
 from core.utils import config
 
-# Override radii + follower BT XML for this experiment.
+# Override radii + follower BT XML + agent/task counts (Exp 3 density overrides).
 config["agents"]["types"]["Leader"]["communication_radius"] = {leader_radius}
 config["agents"]["types"]["Follower"]["communication_radius"] = {follower_radius}
 config["agents"]["types"]["Follower"]["behavior_tree_xml"] = "{follower_bt}"
+config["agents"]["types"]["Follower"]["quantity"] = {follower_qty}
+config["tasks"]["quantity"] = {task_qty}
+{max_tasks_override}
 
 config["simulation"]["random_seed"] = {seed}
 config["simulation"]["rendering_mode"] = "None"
@@ -179,7 +184,18 @@ asyncio.run(run())
 '''
 
 
-def run_one(yaml_rel, follower_bt, seed):
+def _algo_overrides(algo):
+    ov = ALGO_OVERRIDES[algo]
+    max_tasks = ov.get('max_tasks_per_agent')
+    max_tasks_line = (
+        f'config["decision_making"]["CBBA"]["max_tasks_per_agent"] = {max_tasks}'
+        if max_tasks is not None else ''
+    )
+    return ov['follower_qty'], ov['task_qty'], max_tasks_line
+
+
+def run_one(algo, yaml_rel, follower_bt, seed):
+    follower_qty, task_qty, max_tasks_override = _algo_overrides(algo)
     code = CHILD_TEMPLATE.format(
         path=os.path.join(SCEN_ROOT, yaml_rel),
         leader_radius=LEADER_RADIUS,
@@ -187,6 +203,9 @@ def run_one(yaml_rel, follower_bt, seed):
         leader_x=LEADER_POSITION[0],
         leader_y=LEADER_POSITION[1],
         follower_bt=follower_bt,
+        follower_qty=follower_qty,
+        task_qty=task_qty,
+        max_tasks_override=max_tasks_override,
         seed=seed,
         max_ticks=MAX_TICKS,
     )
@@ -199,6 +218,85 @@ def run_one(yaml_rel, follower_bt, seed):
         if line.startswith('RESULT_JSON:'):
             return json.loads(line[len('RESULT_JSON:'):])
     return {'error': (out.stderr or '')[-1500:]}
+
+
+# === Per-seed connectivity precondition ===================================
+# Build the all-followers union mesh (cen + dec, leader excluded) using
+# pairwise distance <= FOLLOWER_RADIUS, and check it forms a single
+# connected component. Seeds where the mesh fragments are SKIPPED so the
+# 4-case ablation isolates the algorithm/mechanism contribution from
+# topology luck.
+
+POSITIONS_TEMPLATE = r'''
+import os, sys, json
+os.environ["SDL_VIDEODRIVER"] = "dummy"
+os.environ["PYTHONIOENCODING"] = "utf-8"
+sys.path.insert(0, ".")
+from core.utils import set_config
+set_config(r"{path}")
+from core.utils import config
+config["agents"]["types"]["Leader"]["communication_radius"] = {leader_radius}
+config["agents"]["types"]["Follower"]["communication_radius"] = {follower_radius}
+config["agents"]["types"]["Follower"]["quantity"] = {follower_qty}
+config["tasks"]["quantity"] = {task_qty}
+config["simulation"]["random_seed"] = {seed}
+config["simulation"]["rendering_mode"] = "None"
+config["simulation"].setdefault("saving_options", {{}})
+for k in ("save_gif","save_timewise_result_csv","save_agentwise_result_csv","save_config_yaml"):
+    config["simulation"]["saving_options"][k] = False
+config["simulation"].setdefault("bt_visualiser", {{}})["enabled"] = False
+config["simulation"]["mode"] = "static"
+import importlib
+sim_module = importlib.import_module(config["scenario"]["environment"] + ".sim.sim")
+sim = sim_module.Sim(config)
+followers = [a for a in sim.agents if a.type == "Follower"]
+print("RESULT_JSON:" + json.dumps([
+    {{"id": a.agent_id, "x": a.position.x, "y": a.position.y}} for a in followers
+]))
+'''
+
+
+def _follower_positions(algo, yaml_rel, seed):
+    follower_qty, task_qty, _ = _algo_overrides(algo)
+    code = POSITIONS_TEMPLATE.format(
+        path=os.path.join(SCEN_ROOT, yaml_rel),
+        leader_radius=LEADER_RADIUS,
+        follower_radius=FOLLOWER_RADIUS,
+        follower_qty=follower_qty,
+        task_qty=task_qty,
+        seed=seed,
+    )
+    out = subprocess.run([sys.executable, '-c', code],
+                         capture_output=True, text=True, timeout=60,
+                         encoding='utf-8', errors='replace')
+    for line in (out.stdout or '').splitlines():
+        if line.startswith('RESULT_JSON:'):
+            return json.loads(line[len('RESULT_JSON:'):])
+    return None
+
+
+def _is_follower_mesh_connected(algo, yaml_rel, seed):
+    """True iff all followers form one connected component at FOLLOWER_RADIUS."""
+    fol = _follower_positions(algo, yaml_rel, seed)
+    if fol is None or len(fol) <= 1:
+        return True  # trivially connected (or treat as not informative)
+    # Union-find over pairwise distance <= FOLLOWER_RADIUS
+    parent = {f['id']: f['id'] for f in fol}
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    r_sq = FOLLOWER_RADIUS ** 2
+    for i in range(len(fol)):
+        for j in range(i + 1, len(fol)):
+            dx = fol[i]['x'] - fol[j]['x']
+            dy = fol[i]['y'] - fol[j]['y']
+            if dx * dx + dy * dy <= r_sq:
+                ra, rb = find(fol[i]['id']), find(fol[j]['id'])
+                if ra != rb:
+                    parent[ra] = rb
+    return len({find(f['id']) for f in fol}) == 1
 
 
 FIELDNAMES = ['seed', 'algo', 'condition',
@@ -217,6 +315,18 @@ def append_rows(csv_path, rows):
         writer.writerows(rows)
 
 
+def load_done_keys(csv_path):
+    """Returns set of (seed, algo, condition) already present in CSV — for resume."""
+    if not os.path.exists(csv_path):
+        return set()
+    done = set()
+    with open(csv_path, 'r', encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            done.add((int(row['seed']), row['algo'], row['condition']))
+    return done
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seeds', type=int, default=DEFAULT_SEEDS)
@@ -225,22 +335,52 @@ def main():
     os.makedirs(DATA_DIR, exist_ok=True)
     seeds = list(range(1, args.seeds + 1))
 
+    done_keys = load_done_keys(OUTPUT_CSV)
     n_total = len(seeds) * len(ALGOS) * len(CONDITIONS)
     n_done = 0
     n_failed = 0
+    n_skipped_topology = 0
+    n_skipped_done = 0
+    skipped_seeds = {algo: [] for algo in ALGOS}
     t0 = time.time()
 
-    print(f'Exp 3 — {n_total} runs ({len(seeds)} seeds × {len(ALGOS)} algos × {len(CONDITIONS)} conditions)')
-    print(f'        leader_radius={LEADER_RADIUS}, follower_radius={FOLLOWER_RADIUS}\n')
+    print(f'Exp 3 — up to {n_total} runs ({len(seeds)} seeds × {len(ALGOS)} algos × {len(CONDITIONS)} conditions)')
+    print(f'        leader_radius={LEADER_RADIUS}, follower_radius={FOLLOWER_RADIUS}')
+    print(f'        per-(seed, algo) precondition: all followers form one connected component')
+    if done_keys:
+        print(f'        {len(done_keys)} (seed, algo, condition) entries already in {OUTPUT_CSV} — will skip')
+    print()
 
-    for algo, yaml_rel in ALGOS.items():
-        for cond_name, follower_bt in CONDITIONS.items():
-            for seed in seeds:
+    # Outer loop = seed × algo (connectivity check applies to all 4 conditions
+    # of that (seed, algo) pair). Skip the whole pair if mesh is fragmented.
+    for seed in seeds:
+        for algo, yaml_rel in ALGOS.items():
+            # Resume short-circuit: if all 4 conditions are already done for this
+            # (seed, algo), skip the topology check too — it would redundantly
+            # discover an already-classified seed.
+            all_conds_done = all(
+                (seed, algo, cond_name) in done_keys for cond_name in CONDITIONS
+            )
+            if all_conds_done:
+                n_skipped_done += len(CONDITIONS)
+                continue
+
+            if not _is_follower_mesh_connected(algo, yaml_rel, seed):
+                n_skipped_topology += 1
+                skipped_seeds[algo].append(seed)
+                print(f'  [SKIP-TOPOLOGY] seed={seed} algo={algo}: '
+                      f'follower mesh fragmented at R={FOLLOWER_RADIUS}', flush=True)
+                continue
+
+            for cond_name, follower_bt in CONDITIONS.items():
+                if (seed, algo, cond_name) in done_keys:
+                    n_skipped_done += 1
+                    continue
                 n_done += 1
                 tag = f'[{n_done}/{n_total}] {algo}/{cond_name} seed={seed}'
                 print(f'  {tag} ...', flush=True)
                 t_start = time.time()
-                result = run_one(yaml_rel, follower_bt, seed)
+                result = run_one(algo, yaml_rel, follower_bt, seed)
                 elapsed = time.time() - t_start
 
                 if 'error' in result:
@@ -274,7 +414,13 @@ def main():
                 append_rows(OUTPUT_CSV, [row])
 
     elapsed = time.time() - t0
-    print(f'\nDone — {n_done - n_failed} ok, {n_failed} failed ({elapsed:.0f}s) → {OUTPUT_CSV}')
+    print(f'\nDone — {n_done - n_failed} ok, {n_failed} failed, '
+          f'{n_skipped_done} skipped (already done), '
+          f'{n_skipped_topology} (seed,algo) skipped (mesh fragmented) '
+          f'({elapsed:.0f}s) → {OUTPUT_CSV}')
+    for algo, sd in skipped_seeds.items():
+        if sd:
+            print(f'  skipped seeds [{algo}]: {sd}')
 
 
 if __name__ == '__main__':
