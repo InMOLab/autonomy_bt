@@ -88,6 +88,8 @@ class BaseSim:
         self.simulation_time = 0.0
         self.tick_count = 0
         self.wall_clock_start = time.perf_counter()
+        self.wall_clock_paused_total = 0.0
+        self.wall_clock_pause_start = None
         self.last_print_time = 0.0   # Variable to track the last time tasks_left was printed
 
         # Initialize dynamic task generation time
@@ -175,8 +177,24 @@ class BaseSim:
             task.draw(self.screen)
 
 
+    @property
+    def wall_clock(self):
+        paused = self.wall_clock_paused_total
+        if self.game_paused and self.wall_clock_pause_start is not None:
+            paused += time.perf_counter() - self.wall_clock_pause_start
+        return time.perf_counter() - self.wall_clock_start - paused
+
+    def _toggle_pause(self):
+        self.game_paused = not self.game_paused
+        if self.game_paused:
+            self.wall_clock_pause_start = time.perf_counter()
+        else:
+            if self.wall_clock_pause_start is not None:
+                self.wall_clock_paused_total += time.perf_counter() - self.wall_clock_pause_start
+                self.wall_clock_pause_start = None
+
     def draw_status_overlay(self):
-        wall = time.perf_counter() - self.wall_clock_start
+        wall = self.wall_clock
         text = f'Tick: {self.tick_count}  Wall: {wall:.1f}s  Tasks left: {self.tasks_left}'
         task_time_text = pre_render_text(text, 36, (0, 0, 0))
         self.screen.blit(task_time_text, (self.screen_width - 470, 20))
@@ -272,7 +290,7 @@ class BaseSim:
                 if event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
                     self.running = False
                 elif event.key == pygame.K_p:
-                    self.game_paused = not self.game_paused
+                    self._toggle_pause()
                 elif event.key == pygame.K_s:
                     if not self.recording:
                         self.recording = True

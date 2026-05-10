@@ -19,13 +19,12 @@ robot, with different external systems plugged in.
 import json
 import socket
 import threading
-import time
 
 import pygame
 
 from core.utils import config
 from platforms.pygame.base_sim import BaseSim
-from platforms.pygame.utils_pygame import ResultSaver, generate_positions, pre_render_text
+from platforms.pygame.utils_pygame import ResultSaver, generate_positions
 from platforms.mona.mona_comm import MonaComm
 
 
@@ -65,10 +64,6 @@ class MonaSim(BaseSim):
 
         self.mode = get_mode()
         self.motion_enabled, self.comm_enabled, self.whycon_enabled, _ = get_mode_flags(self.mode)
-
-        # Wall clock (only accumulates while simulation is running)
-        self.wall_clock_elapsed = 0.0
-        self._wall_clock_last = time.monotonic()
 
         # ESP32 P2P bridge (only if mode requires it)
         self.mona_comm = MonaComm(config.get("mona", {})) if self.comm_enabled else None
@@ -150,20 +145,6 @@ class MonaSim(BaseSim):
             for agent in self.agents:
                 agent.mona_comm = self.mona_comm
 
-    def update_simulation(self):
-        # Wall clock advances only while simulation is running (not paused).
-        now = time.monotonic()
-        self.wall_clock_elapsed += now - self._wall_clock_last
-        self._wall_clock_last = now
-        super().update_simulation()
-
-    def draw_status_overlay(self):
-        super().draw_status_overlay()
-        wall_clock_text = pre_render_text(
-            f'Wall Clock: {self.wall_clock_elapsed:.2f}s', 36, (0, 0, 0)
-        )
-        self.screen.blit(wall_clock_text, (self.screen_width - 350, 60))
-
     def handle_keyboard_events(self):
         # Real-robot modes (puppet/offboard) disable the drag-and-drop and
         # use mouse-click-to-spawn-task instead — dragging an agent makes
@@ -181,9 +162,7 @@ class MonaSim(BaseSim):
                 if event.key in (pygame.K_q, pygame.K_ESCAPE):
                     self.running = False
                 elif event.key == pygame.K_p:
-                    self.game_paused = not self.game_paused
-                    if not self.game_paused:
-                        self._wall_clock_last = time.monotonic()
+                    self._toggle_pause()
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if not self.agents:
                     continue
