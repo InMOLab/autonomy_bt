@@ -25,7 +25,7 @@ import pygame
 
 from core.utils import config
 from platforms.mona.mona_sim import MonaSim
-from platforms.pygame.utils_pygame import generate_positions
+from platforms.pygame.utils_pygame import generate_positions, pre_render_text
 from scenarios.mona.letter_show.sim.task import Task
 from scenarios.mona.letter_show.sim.super_task import SuperTask, size_for_count
 
@@ -189,8 +189,8 @@ class Sim(MonaSim):
 
         # All agents arrived — start (or continue) the dwell timer.
         if self._all_arrived_wall is None:
-            self._all_arrived_wall = self.wall_clock_elapsed
-        if self.wall_clock_elapsed - self._all_arrived_wall < self._completion_delay:
+            self._all_arrived_wall = self.wall_clock
+        if self.wall_clock - self._all_arrived_wall < self._completion_delay:
             return
 
         # Pick this generation's positions / amounts.
@@ -258,6 +258,11 @@ class Sim(MonaSim):
                     walk(child)
         if hasattr(agent, 'tree') and agent.tree is not None:
             walk(agent.tree)
+
+    # ── draw_status_overlay override: show only Tick + Wall clock ───────────
+    def draw_status_overlay(self):
+        text = f'Tick: {self.tick_count}  Wall: {self.wall_clock:.1f}s'
+        self.screen.blit(pre_render_text(text, 36, (0, 0, 0)), (self.screen_width - 310, 20))
 
     # ── draw_tasks override: super-task overlays under regular tasks ─────────
     def draw_tasks(self):
@@ -330,7 +335,7 @@ class Sim(MonaSim):
 
         self.data_records.append([
             self.simulation_time,
-            self.wall_clock_elapsed,
+            self.wall_clock,
             agents_total_distance_moved,
             agents_total_task_amount_done,
             remaining_tasks,
@@ -339,7 +344,7 @@ class Sim(MonaSim):
 
         for agent in self.agents:
             self.battery_records[agent.agent_id].append(
-                (self.wall_clock_elapsed, agent.distance_moved, agent.battery)
+                (self.wall_clock, agent.distance_moved, agent.battery)
             )
 
     # ── save_results override: timewise CSV header includes wall_clock; add battery graphs ──
