@@ -5,8 +5,8 @@
 #include <strings.h> // strncasecmp를 위한 헤더 추가 (Core 3.x 대응)
 
 // ===================== WiFi / UDP =====================
-const char* ssid     = "InMOLab";
-const char* password = "dlsahfoq104!";
+const char* SSID        = "Your SSID";
+const char* PASSWORD    = "Your Password";
 WiFiUDP udp;
 const int localPort = 8080;
 char packetBuffer[255];
@@ -25,11 +25,11 @@ volatile RobotState state = STATE_IDLE;
 // 펄스/제어 상수
 static const float PULSES_PER_MM     = 18.0f;
 static const float PULSES_PER_DEGREE = 12.8f;
-static const int   FWD_SPD  = 100;
-static const int   TURN_SPD = 100;
+static const int   FWD_SPD  = 130;
+static const int   TURN_SPD = 110;
 
 // 900펄스마다 새로운 명령을 받음
-static const long  UPDATE_THRESHOLD_PULSES = 900;   
+static const long  UPDATE_THRESHOLD_PULSES = 1350;   
 static const float MIN_DIST_MM               = 40.0f; 
 
 // IR/회피
@@ -42,15 +42,13 @@ static const int PIN_ENCODER_LEFT  = 35;
 static const int PIN_ENCODER_RIGHT = 39;
 
 // 제어 관련 임계값
-static const float ROTATION_DEADBAND_DEG = 5.0f;    // 미세 회전 무시 각도
+static const float ROTATION_DEADBAND_DEG = 10.0f;    // 미세 회전 무시 각도
 static const int   MIN_MOTOR_PWM         = 60;      // 모터 구동 최소 출력
 
 // ===================== PI 제어 게인 =====================
-static const float K_P = 0.5f;
-static const float K_I = 0.002f;
-
-// 적분 제한
-static const float INTEGRAL_LIMIT = 500.0f;
+static const float K_P = 1.0f;
+static const float K_I = 0.08f;
+static const float INTEGRAL_LIMIT = 150.0f;
 
 // 오차 데드밴드
 static const int ERROR_DEADBAND = 5;
@@ -58,7 +56,7 @@ static const int ERROR_DEADBAND = 5;
 // 비상 동작 속도
 static const int EMERGENCY_SPIN_SPD = 200;
 
-static const uint16_t ESCAPING_MS = 1000;
+static const uint16_t ESCAPING_MS = 500;
 unsigned long escaping_until_ms = 0;
 
 static const unsigned long EMERGENCY_SPIN_MS = 1200;
@@ -167,8 +165,8 @@ void update_status_led() {
       Set_LED(2, 0, 0, 50);
       break;
     case STATE_MOVING:
-      Set_LED(1, 0, 50, 0);   // 밝은 녹색: 이동
-      Set_LED(2, 0, 50, 0);
+      Set_LED(1, 30, 30, 30); // 흰색: 이동
+      Set_LED(2, 30, 30, 30);
       break;
     case STATE_AVOID:
       Set_LED(1, 50, 50, 0);  // 노란색: 회피
@@ -277,6 +275,10 @@ void handle_udp_packet() {
   }
 
   if (strncasecmp(packetBuffer, "STOP", 4) == 0) {
+    // 회피 기동 중에는 STOP 무시
+    if (state == STATE_AVOID || state == STATE_ESCAPING || state == STATE_EMERGENCY) {
+      return;
+    }
     Motors_stop();
     clear_motion_targets();
     state = STATE_IDLE;
@@ -380,6 +382,7 @@ void control_loop(int r1, int r2, int r3, int r4, int r5) {
     case STATE_ESCAPING:
       if (obstacle) {
         Motors_stop();
+        clear_motion_targets();
         state = STATE_AVOID;
         break;
       }
