@@ -5,8 +5,8 @@
 #include <strings.h> // strncasecmp를 위한 헤더 추가 (Core 3.x 대응)
 
 // ===================== WiFi / UDP =====================
-const char* ssid     = "InMOLab";
-const char* password = "dlsahfoq104!";
+const char* ssid     = "Your SSID";
+const char* password = "Your Passwoard";
 WiFiUDP udp;
 const int localPort = 8080;
 char packetBuffer[255];
@@ -14,8 +14,8 @@ char packetBuffer[255];
 // ===================== 배터리 전송 설정 =====================
 const char*    BATT_PC_IP       = "192.168.0.21"; // listen_udp.py 실행 PC의 IP
 const uint16_t BATT_UDP_PORT    = 5005;
-static const unsigned long BATT_INTERVAL_MS = 500; // 3초마다 전송
-static const unsigned long IDLE_SETTLE_MS   = 1000; // IDLE 진입 후 전압 안정화 대기
+static const unsigned long BATT_INTERVAL_MS = 500; // 0.5초마다 전송
+static const unsigned long IDLE_SETTLE_MS   = 1000; // IDLE 진입 후 전압 안정화 1초 대기
 static unsigned long prev_batt_time = 0;
 static unsigned long idle_since_ms  = 0;
 static float batt_ema = -1.0f;
@@ -57,16 +57,10 @@ static const float ROTATION_DEADBAND_DEG = 10.0f;
 static const int   MIN_MOTOR_PWM         = 60;   // 60
 
 // ===================== PI 제어 게인 =====================
-// K_P: 누적 위치 오차(pulse) 1 당 PWM 보정량
-//   너무 크면 사행(oscillation), 너무 작으면 수렴 느림
-// K_I: 지속 편차(모터 특성 차이) 보정용. K_I × INTEGRAL_LIMIT = 최대 I 기여 PWM
-//   0.01 × 500 = 5 PWM → 사실상 무의미했음. 0.08 × 150 = 12 PWM으로 의미 있는 보정
-static const float K_P = 1.0f;    // 0.7→1.0: 위치 오차 수렴 속도 향상
-static const float K_I = 0.08f;   // 0.01→0.08: I항이 실질적으로 기여하도록
+static const float K_P = 1.0f;
+static const float K_I = 0.08f;
 
-// 적분 제한 (K_I × INTEGRAL_LIMIT = 최대 I 기여 PWM)
-// 0.08 × 150 = 12 PWM → 지속 편차 보정에 충분, windup 방지
-static const float INTEGRAL_LIMIT = 150.0f;  // 500→150
+static const float INTEGRAL_LIMIT = 150.0f;
 
 // 오차 데드밴드
 static const int ERROR_DEADBAND = 5;
