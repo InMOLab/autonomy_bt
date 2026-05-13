@@ -8,17 +8,18 @@ mona:
 
   # Real-robot endpoints. Active in: puppet. Ignored in: full_simulation.
   robots:
-    - {agent_id: 0, host: 192.168.0.27, port: 8080}
-    - {agent_id: 1, host: 192.168.0.26, port: 8080}
-    - {agent_id: 2, host: 192.168.0.24, port: 8080}
-    - {agent_id: 3, host: 192.168.0.28, port: 8080}
-    - {agent_id: 4, host: 192.168.0.29, port: 8080}
-    - {agent_id: 5, host: 192.168.0.30, port: 8080}
-    - {agent_id: 6, host: 192.168.0.31, port: 8080}
-    - {agent_id: 7, host: 192.168.0.32, port: 8080}
-    - {agent_id: 8, host: 192.168.0.33, port: 8080}
+    - {agent_id: 0, host: 192.168.0.47, port: 8080}
+    - {agent_id: 1, host: 192.168.0.56, port: 8080}
+    - {agent_id: 2, host: 192.168.0.46, port: 8080}
+    - {agent_id: 3, host: 192.168.0.48, port: 8080}
+    - {agent_id: 4, host: 192.168.0.58, port: 8080}
+    - {agent_id: 5, host: 192.168.0.55, port: 8080}
+    - {agent_id: 6, host: 192.168.0.60, port: 8080}
+    - {agent_id: 7, host: 192.168.0.59, port: 8080}
+    - {agent_id: 8, host: 192.168.0.62, port: 8080}
 
   udp_port: 9999          # WhyCon listener bind port. Active in: puppet. Ignored in: full_simulation.
+  battery_listen_port: 5005  # Robot→sim battery telemetry port. Active in: puppet. Ignored in: full_simulation.
   distance_scale: 1.0     # UDP G-command distance scaling.   Active in: puppet. Ignored in: full_simulation.
 
 scenario: 
