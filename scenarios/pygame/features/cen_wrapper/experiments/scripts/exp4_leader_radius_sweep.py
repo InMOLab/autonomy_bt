@@ -98,6 +98,17 @@ sim_module = importlib.import_module(config["scenario"]["environment"] + ".sim.s
 from platforms.pygame.bt_runner import BTRunner
 
 sim = sim_module.Sim(config)
+
+# Force leader to map center (700, 500) so the Leader.communication_radius
+# sweep is the only manipulated variable. With random spawn, the in-range
+# follower count would also be a function of leader position — confounding
+# the radius effect with spawn-induced coverage variance. Matches Exp 3's
+# leader-fix-at-center methodology for cross-experiment consistency.
+import pygame as _pg
+for _a in sim.agents:
+    if _a.type == "Leader":
+        _a.position = _pg.math.Vector2(700, 500)
+
 bt_runner = BTRunner(config)
 bt_runner.initialize(sim.agents)
 
