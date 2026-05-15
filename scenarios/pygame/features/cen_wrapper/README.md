@@ -51,7 +51,7 @@ Interactive keys during a run: `L` toggles the leader (despawn / respawn);
 
 | File | Role |
 |---|---|
-| `bt_leader.xml`          | leader, baseline mode — `AssignCenTask` loads `cen_plugin` (`SGA` / `CenGRAPE` / `Hungarian`) |
+| `bt_leader_baseline.xml`          | leader, baseline mode — `AssignCenTask` loads `cen_plugin` (`SGA` / `CenGRAPE` / `Hungarian`) |
 | `bt_leader_wrapper.xml`  | leader, wrapper mode — `CentralisationWrapper(AssignTask)` simulates the dec plugin per follower |
 | `bt_follower_static.xml` | follower, static mode — Halt once assigned (Exp 3 baseline: Relay OFF, Forward OFF) |
 | `bt_follower_static_relay_only.xml`   | static, Exp 3 ablation — Relay ON, Forward OFF |

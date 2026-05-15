@@ -19,7 +19,7 @@ agents:
   # ─────────────────────────────────────────────────────────────────────
   types:
     Leader:
-      behavior_tree_xml: bt_leader.xml
+      behavior_tree_xml: bt_leader_baseline.xml
       quantity: 0
       communication_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the other agents
       situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
