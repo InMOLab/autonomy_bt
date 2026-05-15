@@ -54,6 +54,11 @@ BTNodeList.CONDITION_NODES.extend(CUSTOM_CONDITION_NODES)
 BTNodeList.DECORATOR_NODES.extend(CUSTOM_DECORATOR_NODES)
 
 
+# ─── Tunable parameters ───────────────────────────────────────────────
+# central_plan freshness window. pygame keeps "no TTL" by default (leader is always present in current paper experiments); non-pygame consumers override this module-level constant (e.g. ROS2 with multi-hop mesh).
+_CENTRAL_PLAN_TTL = float('inf')
+
+
 # ─── Scenario-level config ─────────────────────────────────────────────
 target_arrive_threshold = config.get('tasks', {}).get('threshold_done_by_arrival')
 
@@ -196,7 +201,6 @@ class TeachBT(SyncAction):
     def _teach(self, agent, blackboard):
         agent.message_to_share['central_plan'] = blackboard.get('central_plan', {})
         agent.message_to_share['updated_at'] = time.time()
-        agent.broadcast_message(to_all=False)
         return Status.SUCCESS
 
 
@@ -232,16 +236,20 @@ class Halt(SyncAction):
 # Mesh-relay shared helpers
 # =============================================================================
 
-def _get_latest_central_plan(agent):
-    """Pick the freshest `central_plan` ({'task_allocations', 'created_at'}) from the inbox (or None)."""
+def _get_latest_central_plan(messages_received, ttl_seconds=float('inf')):
+    """Pick the freshest central_plan from the inbox, rejecting any older than ttl_seconds (default: no TTL)."""
+    now = time.time()
     latest_plan, latest_created_at = None, -1
-    for message in agent.messages_received:
+    for message in messages_received:
         plan = message.get('central_plan')
-        if isinstance(plan, dict):
-            created_at = plan.get('created_at', 0)
-            if created_at > latest_created_at:
-                latest_created_at = created_at
-                latest_plan = plan
+        if plan is None:
+            continue
+        created_at = plan['created_at']
+        if now - created_at > ttl_seconds:
+            continue
+        if created_at > latest_created_at:
+            latest_created_at = created_at
+            latest_plan = plan
     return latest_plan
 
 
@@ -266,7 +274,7 @@ class ApplyCenTask(SyncAction):
         super().__init__(name, self._apply)
 
     def _apply(self, agent, blackboard):
-        latest_plan = _get_latest_central_plan(agent)
+        latest_plan = _get_latest_central_plan(agent.messages_received, _CENTRAL_PLAN_TTL)
         # Cache for downstream `ForwardCenAllocation` (symmetric with FilterClaimedTasks on the dec branch).
         blackboard['_latest_central_plan'] = latest_plan
         bundle = (latest_plan or {}).get('task_allocations', {}).get(agent.agent_id, [])
@@ -285,6 +293,8 @@ class ForwardCenAllocation(SyncAction):
     def _forward(self, agent, blackboard):
         latest_plan = blackboard.get('_latest_central_plan')
         if latest_plan is None:
+            # Leader gone or plan stale — drop it from outbox so peers stop relaying stale plan via mesh.
+            agent.message_to_share.pop('central_plan', None)
             return Status.SUCCESS
 
         agent.message_to_share['central_plan'] = latest_plan
@@ -394,7 +404,7 @@ class FilterClaimedTasks(SyncAction):
         super().__init__(name, self._filter)
 
     def _filter(self, agent, blackboard):
-        latest_plan = _get_latest_central_plan(agent)
+        latest_plan = _get_latest_central_plan(agent.messages_received, _CENTRAL_PLAN_TTL)
         blackboard['_latest_central_plan'] = latest_plan
         if latest_plan is None:
             return Status.SUCCESS
@@ -404,8 +414,9 @@ class FilterClaimedTasks(SyncAction):
         for follower_id, bundle in latest_plan.get('task_allocations', {}).items():
             if follower_id == agent.agent_id:
                 continue
+            # Followers in the plan are cen-covered even with an empty bundle — strip so dec doesn't re-assign them.
+            cen_claimed_agent_ids.add(follower_id)
             if bundle:
-                cen_claimed_agent_ids.add(follower_id)
                 cen_claimed_task_ids.update(t for t in bundle if t is not None)
 
         # Filter centrally-claimed tasks in "blackboard['local_tasks_info']"
@@ -540,8 +551,9 @@ class CentralisationWrapper(Node):
             # Cache this proxy's outbox — visible only on the *next* tick's iteration.
             self.proxy_outboxes[follower_id] = dict(proxy.message_to_share) if proxy.message_to_share else {}
 
-            # Mirror the proxy's plan back onto the live target so the platform's visualisation (path overlay) reflects the wrapper's decision. 
-            target_agent.set_planned_tasks(list(proxy.planned_tasks))
+            # Mirror the proxy's plan onto the live target for path-overlay visualisation. Defensive `hasattr` — non-pygame platforms (e.g. ROS2) pass shim agent views that don't expose this method and handle visualisation via their own broadcast topic.
+            if hasattr(target_agent, 'set_planned_tasks'):
+                target_agent.set_planned_tasks(list(proxy.planned_tasks))
 
         agent.reset_messages_received()
 
