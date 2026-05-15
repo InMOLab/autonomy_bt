@@ -46,8 +46,11 @@ class GRAPE:
             self.satisfied = False
             
 
-        # Give up the decision-making process if there is no task nearby 
-        if len(local_tasks_info) == 0: 
+        # No task nearby — mark outbox idle but keep consensus fields (partition/evolution_number/mutex_tiebreak) so peers can still merge.
+        if len(local_tasks_info) == 0:
+            self.assigned_task = None
+            self.agent.message_to_share['assigned_task_id'] = None
+            self.agent.message_to_share['updated_at'] = time.time()
             return None
 
 
@@ -126,13 +129,16 @@ class GRAPE:
         utility = task.amount / (num_collaborator) - COST_WEIGHT_FACTOR * distance * (num_collaborator ** SOCIAL_INHIBITION_FACTOR) 
         return utility
 
-    def distributed_mutex(self, messages_received):        
+    def distributed_mutex(self, messages_received):
         _satisfied = True
         _evolution_number = self.evolution_number
         _partition = self.partition
         _time_stamp = self.time_stamp
-        
+
         for message in messages_received:
+            # Skip non-GRAPE messages (e.g. cen_wrapper's FilterClaimedTasks placeholder, leader broadcast).
+            if not isinstance(message, dict) or 'evolution_number' not in message:
+                continue
             if message['evolution_number'] > _evolution_number or (message['evolution_number'] == _evolution_number and message['mutex_tiebreak'] > _time_stamp):
                 _evolution_number = message['evolution_number']
                 _time_stamp = message['mutex_tiebreak']
