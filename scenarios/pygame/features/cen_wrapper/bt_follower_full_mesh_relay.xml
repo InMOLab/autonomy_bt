@@ -8,8 +8,16 @@
         <ReactiveSequence>
           <IsConnectedWithLeader/>
           <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
         </ReactiveSequence>
-        <AssignTask/>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
+        </ReactiveSequence>
       </ReactiveFallback>
       <ReactiveSequence>
         <ReactiveFallback>
@@ -30,7 +38,6 @@
     </Parallel>
   </BehaviorTree>
 
-  <!-- Description of Node Models (used by Groot) -->
   <TreeNodesModel>
     <Action ID="ApplyCenTask"
             editable="true"/>
@@ -38,9 +45,19 @@
             editable="true"/>
     <Action ID="ExecuteTask"
             editable="true"/>
+    <Action ID="FilterClaimedTasks"
+            editable="true"/>
+    <Action ID="ForwardCenAllocation"
+            editable="true"/>
     <Action ID="GatherLocalInfo"
             editable="true"/>
     <Action ID="Halt"
+            editable="true"/>
+    <Action ID="MoveToTarget"
+            editable="true"/>
+    <Action ID="RelayDecMessages"
+            editable="true"/>
+    <Action ID="UnpackRelayedMessages"
             editable="true"/>
     <Condition ID="IsArrivedAtTarget"
                editable="true"/>
@@ -50,8 +67,6 @@
                editable="true"/>
     <Condition ID="IsTaskCompleted"
                editable="true"/>
-    <Action ID="MoveToTarget"
-            editable="true"/>
   </TreeNodesModel>
 
 </root>
