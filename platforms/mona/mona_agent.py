@@ -369,12 +369,6 @@ class MonaAgent(BaseAgent):
                 if ag.agent_id in visual_peer_ids and ag.agent_id != self.agent_id
             ]
 
-        if self.agents_nearby:
-            observed = max((self.position - ag.position).length() for ag in self.agents_nearby)
-            cap = self._cfg_comm_radius or 0
-            self.communication_radius = min(observed, cap) if cap > 0 else observed
-        else:
-            self.communication_radius = 0
 
     def _peer_in_range(self, sender_id: int) -> bool:
         if self._cfg_comm_radius <= 0:
