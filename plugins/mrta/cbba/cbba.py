@@ -67,8 +67,12 @@ class CBBA:
                 self.y[_tid] = float('-inf')
                 self.z[_tid] = None
 
-        # Give up the decision-making process if there is no task nearby 
-        if len(local_tasks_info) == 0 and len(self.bundle) == 0: 
+        # No task nearby and no bundle — mark outbox idle but keep consensus fields (winning_agents/winning_bids/message_received_time_stamp) so peers can still merge.
+        if len(local_tasks_info) == 0 and len(self.bundle) == 0:
+            self.assigned_task = None
+            self.agent.message_to_share['assigned_task_id'] = None
+            self.agent.message_to_share['planned_tasks_id'] = []
+            self.agent.message_to_share['updated_at'] = time.time()
             return None
         
         # Neutralize all the winning bid information if there are local tasks nearby but the agent cannot choose any of them for a certain period
