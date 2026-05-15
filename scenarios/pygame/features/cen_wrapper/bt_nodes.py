@@ -510,44 +510,52 @@ class CentralisationWrapper(Node):
     async def run(self, agent, blackboard):
         agents = blackboard['local_agents_info']
 
-        # Per-tick output. 
+        # Per-tick output.
         current_tick_allocations = {}
         current_tick_primary = {}  # primary-only view, for convergence check
-        
-        # Freeze the outbox cache at tick start so all per-target invocations see the same peer-message view (analog of BTRunner's tick-start snapshot)
-        outbox_snapshot = dict(self.proxy_outboxes)
+
+        local_follower_ids = {a.agent_id for a in agents if a.type != 'Leader'}
+        self.proxy_outboxes = {follower_id: o for follower_id, o in self.proxy_outboxes.items() if follower_id in local_follower_ids}
+        self.proxies = {follower_id: p for follower_id, p in self.proxies.items() if follower_id in local_follower_ids}
+
+        # Sanitize cached outboxes — blocks Pass-2 ghost reintroduction via the outbox feedback loop.
+        local_task_ids = set(blackboard.get('local_tasks_info', {}).keys())
+        outbox_snapshot = {
+            follower_id: self._sanitize_cached_outbox(msg, local_follower_ids, local_task_ids)
+            for follower_id, msg in self.proxy_outboxes.items()
+        }
 
         for target_agent in agents:
             if target_agent.type == 'Leader':
                 continue
-            tid = target_agent.agent_id
+            follower_id = target_agent.agent_id
             # Lazy create proxy; decision_maker is attached on first AssignTask invocation.
-            if tid not in self.proxies:
-                self.proxies[tid] = FollowerProxy(tid, target_agent.position)
-            proxy = self.proxies[tid]
+            if follower_id not in self.proxies:
+                self.proxies[follower_id] = FollowerProxy(follower_id, target_agent.position)
+            proxy = self.proxies[follower_id]
             # Refresh per-tick fields (pygame: copy from live target).
             proxy.position = pygame.Vector2(target_agent.position)
             # Build messages_received from the frozen outbox snapshot (excluding self).
             proxy.messages_received = [
-                msg for other_tid, msg in outbox_snapshot.items()
-                if other_tid != tid and msg
+                msg for other_follower_id, msg in outbox_snapshot.items()
+                if other_follower_id != follower_id and msg
             ]
             proxy.message_to_share = {}
             # Shallow-copy leader's blackboard so each per-target invocation has its own I/O scope.
             target_blackboard = dict(blackboard)
             await self.children[0].run(proxy, target_blackboard)
             primary = target_blackboard.get('assigned_task_id')
-            current_tick_primary[tid] = primary
+            current_tick_primary[follower_id] = primary
 
             # Prefer plugin's `planned_tasks_id` (CBBA) on its outbox;
             # fall back to [primary] for single-task plugins.
             bundle = proxy.message_to_share.get('planned_tasks_id') if proxy.message_to_share else None
             if not bundle:
                 bundle = [primary] if primary is not None else []
-            current_tick_allocations[tid] = list(bundle)
+            current_tick_allocations[follower_id] = list(bundle)
 
             # Cache this proxy's outbox — visible only on the *next* tick's iteration.
-            self.proxy_outboxes[tid] = dict(proxy.message_to_share) if proxy.message_to_share else {}
+            self.proxy_outboxes[follower_id] = dict(proxy.message_to_share) if proxy.message_to_share else {}
 
             # Mirror the proxy's plan back onto the live target so the platform's visualisation (path overlay) reflects the wrapper's decision. 
             target_agent.set_planned_tasks(list(proxy.planned_tasks))
@@ -575,4 +583,14 @@ class CentralisationWrapper(Node):
         """
         return (bool(self.previous_allocations)
                 and current_allocations.items() <= self.previous_allocations.items())
+
+    @staticmethod
+    def _sanitize_cached_outbox(msg, local_follower_ids, local_task_ids):
+        """Strip agents_info/tasks_info entries outside the leader's local view."""
+        sanitized = dict(msg)
+        if isinstance(sanitized.get('agents_info'), list):
+            sanitized['agents_info'] = [a for a in sanitized['agents_info'] if extract_agent_id(a) in local_follower_ids]
+        if isinstance(sanitized.get('tasks_info'), list):
+            sanitized['tasks_info'] = [t for t in sanitized['tasks_info'] if extract_task_id(t) in local_task_ids]
+        return sanitized
 
