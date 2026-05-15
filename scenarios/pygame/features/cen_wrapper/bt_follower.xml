@@ -1,4 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Follower BT — final canonical cen_wrapper deployment for dynamic + partial
+  connectivity. Used by Exp 4 (leader-radius sweep) and recommended as the
+  default follower BT for cen_wrapper in any partial-connectivity scenario.
+
+  Combines the mesh-relay decision design from `bt_follower_static_full.xml`
+  (validated in Exp 3's 4-case boundary-conflict ablation) with the
+  dynamic-execution branch needed for actual task movement. The mesh relay
+  propagates the leader's allocation to out-of-range followers and strips
+  cen-claimed tasks from the dec view, so the dec MRTA plugin only bids on
+  what's still free.
+
+    cen branch (follower within leader's broadcast range):
+      ApplyCenTask          – adopt leader's broadcast as primary task.
+      ForwardCenAllocation  – re-publish leader's allocation in own outbox
+                              so dec-only peers (out of leader's range but
+                              within mesh range) inherit it transitively.
+      RelayDecMessages      – bundle 1-hop dec-peer messages into
+                              `relayed_messages` so this cen follower acts as
+                              a bridge between fragmented dec clusters.
+
+    dec branch (follower out of leader's range):
+      UnpackRelayedMessages – flatten `relayed_messages` from incoming peer
+                              messages back into `messages_received`, so the
+                              dec plugin sees relayed peers as if direct.
+      FilterClaimedTasks    – strip cen-claimed tasks/agents/leader from the
+                              local view so the dec plugin only bids on what
+                              the leader hasn't already allocated.
+      AssignTask            – run dec MRTA (CBBA / dec_hungarian / GRAPE).
+      ForwardCenAllocation  – also forward leader's allocation in own outbox
+                              so dec→dec chains can carry it without needing
+                              a cen-branch follower in between.
+      RelayDecMessages      – dec also relays peer messages so dec→dec chains
+                              can bridge dec agents that are out of every
+                              cen agent's communication range.
+
+  Execution branch (always runs in parallel with decision):
+      IsTaskAssigned/Halt   – if no task, halt (no movement).
+      IsTaskCompleted /
+        IsArrivedAtTarget /
+        MoveToTarget /
+        ExecuteTask         – navigate to target and execute work.
+-->
 <root BTCPP_format="4">
   <BehaviorTree ID="space-simulator">
     <Parallel failure_count="None"
@@ -8,8 +51,16 @@
         <ReactiveSequence>
           <IsConnectedWithLeader/>
           <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
         </ReactiveSequence>
-        <AssignTask/>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
+        </ReactiveSequence>
       </ReactiveFallback>
       <ReactiveSequence>
         <ReactiveFallback>
@@ -30,7 +81,6 @@
     </Parallel>
   </BehaviorTree>
 
-  <!-- Description of Node Models (used by Groot) -->
   <TreeNodesModel>
     <Action ID="ApplyCenTask"
             editable="true"/>
@@ -38,9 +88,19 @@
             editable="true"/>
     <Action ID="ExecuteTask"
             editable="true"/>
+    <Action ID="FilterClaimedTasks"
+            editable="true"/>
+    <Action ID="ForwardCenAllocation"
+            editable="true"/>
     <Action ID="GatherLocalInfo"
             editable="true"/>
     <Action ID="Halt"
+            editable="true"/>
+    <Action ID="MoveToTarget"
+            editable="true"/>
+    <Action ID="RelayDecMessages"
+            editable="true"/>
+    <Action ID="UnpackRelayedMessages"
             editable="true"/>
     <Condition ID="IsArrivedAtTarget"
                editable="true"/>
@@ -50,8 +110,6 @@
                editable="true"/>
     <Condition ID="IsTaskCompleted"
                editable="true"/>
-    <Action ID="MoveToTarget"
-            editable="true"/>
   </TreeNodesModel>
 
 </root>
