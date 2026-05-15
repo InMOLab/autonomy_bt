@@ -16,7 +16,6 @@ from platforms.pygame.bt_nodes_pygame import (
     _IsArrivedAtTask,
     _MoveToTask,
     _ExecuteTaskWhileFollowing,
-    _ExploreArea,
     GatherLocalInfo,
 )
 
@@ -34,7 +33,6 @@ CUSTOM_ACTION_NODES = [
     'ForwardCenAllocation',   # mesh-relay [dec]: forward leader's task_allocations into mesh
     'MoveToTarget',
     'ExecuteTask',
-    'Explore',
     'TeachBT',
     'Halt',
 ]
@@ -57,12 +55,7 @@ BTNodeList.DECORATOR_NODES.extend(CUSTOM_DECORATOR_NODES)
 
 
 # ─── Scenario-level config ─────────────────────────────────────────────
-target_arrive_threshold = config['tasks']['threshold_done_by_arrival']
-task_locations = config['tasks']['locations']
-sampling_time = 1.0 / config['simulation']['sampling_freq']
-agent_max_random_movement_duration = config.get('agents', {}).get(
-    'random_exploration_duration', 1000,
-) or 1000
+target_arrive_threshold = config.get('tasks', {}).get('threshold_done_by_arrival')
 
 
 def _load_plugin(yaml_key):
@@ -189,16 +182,6 @@ class MoveToTarget(_MoveToTask):
 class ExecuteTask(_ExecuteTaskWhileFollowing):
     def _update(self, agent, blackboard):
         return super()._update(agent, blackboard, task_id_key='assigned_task_id')
-
-
-class Explore(_ExploreArea):
-    def _update(self, agent, blackboard):
-        return super()._update(
-            agent, blackboard,
-            agent_max_random_movement_duration=agent_max_random_movement_duration,
-            exploration_area=task_locations,
-            sampling_time=sampling_time,
-        )
 
 
 class TeachBT(SyncAction):
