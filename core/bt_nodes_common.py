@@ -22,12 +22,14 @@ class AssignTask(SyncAction):
         super().__init__(name, self._decide)
         if decision_making_class is None:
             raise RuntimeError("[AssignTask] 'decision_making.plugin' is not set in config.")
-        self.decision_maker = decision_making_class(agent)
+        if not getattr(agent, 'decision_maker', None):
+            agent.decision_maker = decision_making_class(agent)
 
     def _decide(self, agent, blackboard):
-        assigned_task_id = self.decision_maker.decide(blackboard)
-        if hasattr(agent, 'set_assigned_task_id'):
-            agent.set_assigned_task_id(assigned_task_id)
+        if not getattr(agent, 'decision_maker', None):
+            agent.decision_maker = decision_making_class(agent)
+        assigned_task_id = agent.decision_maker.decide(blackboard)
+        agent.assigned_task_id = assigned_task_id  # mirrored for pygame rendering / CSV / external readers
         blackboard['assigned_task_id'] = assigned_task_id
         if assigned_task_id is None:
             return Status.FAILURE

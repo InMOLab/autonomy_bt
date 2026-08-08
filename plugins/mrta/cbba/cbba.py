@@ -1,23 +1,19 @@
-import random
 import pygame
 from core.utils import config
-from enum import Enum
 import numpy as np
 import copy
 import time
 from platforms.pygame.utils_pygame import merge_dicts
 
-KEEP_MOVING_DURING_CONVERGENCE = config['decision_making']['CBBA'].get('execute_movements_during_convergence', False)
 MAX_TASKS_PER_AGENT = config['decision_making']['CBBA']['max_tasks_per_agent']
 LAMBDA = config['decision_making']['CBBA']['task_reward_discount_factor']
 WINNING_BID_CANCEL = config['decision_making']['CBBA']['winning_bid_cancel']
 NO_BUNDLE_DURATION = config['decision_making']['CBBA']['acceptable_empty_bundle_duration']
+FIRST_TASK_CONVERGENCE = config['decision_making']['CBBA'].get('first_task_convergence', False)
+AGENT_SPEED = 0.5
 
-class Phase(Enum):
-    BUILD_BUNDLE = 1
-    ASSIGNMENT_CONSENSUS = 2
 
-class CBBA:  
+class CBBA:
     def __init__(self, agent):
         self.agent = agent        
 
@@ -32,8 +28,9 @@ class CBBA:
             'assigned_task_id': None,
             'winning_agents': self.z, 
             'winning_bids': self.y,
-            'message_received_time_stamp': self.s
-            } 
+            'message_received_time_stamp': self.s,
+            'updated_at': time.time(),
+            }
         
         
         self.assigned_task = None
@@ -53,15 +50,29 @@ class CBBA:
 
         local_tasks_info = blackboard['local_tasks_info']
 
-        # Check if the existing task is done or not available anymore (e.g., completed by others, disappeared due to dynamic environment, etc.)            
-        self.assigned_task = local_tasks_info.get(previous_assigned_task_id)        
-        if self.assigned_task is None and previous_assigned_task_id is not None: 
+        # Check if the existing task is done or not available anymore (e.g., completed by others, disappeared due to dynamic environment, etc.)
+        self.assigned_task = local_tasks_info.get(previous_assigned_task_id)
+        if self.assigned_task is None and previous_assigned_task_id is not None:
             if len(self.path) != 0 and self.path[0].task_id == previous_assigned_task_id:
                 completed_task_id = self.path.pop(0).task_id
                 self.bundle.remove(completed_task_id)
 
-        # Give up the decision-making process if there is no task nearby 
-        if len(local_tasks_info) == 0 and len(self.bundle) == 0: 
+        # Also drop any path[1:] entries that vanished from local_tasks_info
+        # (the path[0] case is already handled above).
+        gone_tids = [tid for tid in self.bundle if tid not in local_tasks_info]
+        for _tid in gone_tids:
+            self.bundle.remove(_tid)
+            self.path = [t for t in self.path if t.task_id != _tid]
+            if self.z.get(_tid) == self.agent.agent_id:
+                self.y[_tid] = float('-inf')
+                self.z[_tid] = None
+
+        # No task nearby and no bundle — mark outbox idle but keep consensus fields (winning_agents/winning_bids/message_received_time_stamp) so peers can still merge.
+        if len(local_tasks_info) == 0 and len(self.bundle) == 0:
+            self.assigned_task = None
+            self.agent.message_to_share['assigned_task_id'] = None
+            self.agent.message_to_share['planned_tasks_id'] = []
+            self.agent.message_to_share['updated_at'] = time.time()
             return None
         
         # Neutralize all the winning bid information if there are local tasks nearby but the agent cannot choose any of them for a certain period
@@ -233,6 +244,30 @@ class CBBA:
                 self.bundle = []
                 self.path = []
 
+        # # Rebid check (Strict version): recalculate marginal bid for every task in path. If any marginal worsened (own move OR target task moved), abandon the entire bundle and rebuild. 
+        # if self.path:
+        #     S_p = self.calculate_score_along_path(self.agent.position, self.path)
+        #     new_bids = {}
+        #     bundle_worsened = False
+        #     for k, task in enumerate(self.path):
+        #         path_without_k = self.path[:k] + self.path[k+1:]
+        #         S_without = self.calculate_score_along_path(self.agent.position, path_without_k)
+        #         current_marginal = S_p - S_without
+        #         if current_marginal < self.y.get(task.task_id, 0):
+        #             bundle_worsened = True
+        #             break
+        #         new_bids[task.task_id] = current_marginal
+        #     if bundle_worsened:
+        #         for task_id in self.bundle:
+        #             if self.z.get(task_id) == self.agent.agent_id:
+        #                 self.y[task_id] = float('-inf')
+        #                 self.z[task_id] = None
+        #         self.bundle = []
+        #         self.path = []
+        #     else:
+        #         for task_id, bid in new_bids.items():
+        #             self.y[task_id] = bid
+
         if True:  # Phase.BUILD_BUNDLE
             self.build_bundle(local_tasks_info)
             # Broadcasting
@@ -241,7 +276,8 @@ class CBBA:
                 'assigned_task_id': self.assigned_task.task_id if self.assigned_task is not None else None,
                 'winning_agents': copy.deepcopy(self.z),
                 'winning_bids': copy.deepcopy(self.y),
-                'message_received_time_stamp': copy.deepcopy(self.s)
+                'message_received_time_stamp': copy.deepcopy(self.s),
+                'updated_at': time.time(),
                 }
             self.agent.set_planned_tasks(self.path) # For visualisation (SPACE only)
 
@@ -255,18 +291,18 @@ class CBBA:
 
         else:
             self.assigned_task = None
-
-        if KEEP_MOVING_DURING_CONVERGENCE:
-            # Even though not being converged, let's move to the first task that I prefer to go
-            self.assigned_task = self.path[0] if self.path else None
-            return self.assigned_task.task_id if self.assigned_task is not None else None
-        else:
-            # self.agent.reset_movement()  # Neutralise the agent's current movement during converging to a consensus
+            # First-task convergence gate: commit to path[0] before bundle stabilises. 
+            if FIRST_TASK_CONVERGENCE and self.path:
+                self.assigned_task = self.path[0]
+                self.agent.message_to_share['assigned_task_id'] = self.assigned_task.task_id
+                self.agent.message_to_share['planned_tasks_id'] = [t.task_id for t in self.path]
+                return self.assigned_task.task_id
             return None
     
     def _update(self, task_id, y_k, z_k):
-        self.y[task_id] = y_k[task_id]   # Winning bid update
-        self.z[task_id] = z_k[task_id]   # Winning agent update
+        # Use .get so a peer message with empty winning_agents/_bids still triggers Rule-15 reset rather than silently failing on KeyError.
+        self.y[task_id] = y_k.get(task_id, 0)        # Winning bid update
+        self.z[task_id] = z_k.get(task_id)           # Winning agent update
 
 
     def _reset(self, task_id):
@@ -342,10 +378,10 @@ class CBBA:
             self.s[other_agent.get('agent_id')] = current_timestamp
 
         
-        # For two-hop neighbor agents
-        max_timestamp = {}     
+        # For two-hop neighbor agents (defensive on `or {}` so a release synth without `message_received_time_stamp` doesn't crash merge_dicts).
+        max_timestamp = {}
         for other_agent_message in self.agent.messages_received:
-            time_stamp = other_agent_message.get("message_received_time_stamp")
+            time_stamp = other_agent_message.get("message_received_time_stamp") or {}
             max_timestamp = merge_dicts(max_timestamp, time_stamp)
 
         # Finally merge
@@ -380,7 +416,6 @@ class CBBA:
         return my_bid_list, best_insertion_idx_list
     
     def get_alternative_path(self, path, task, idx):
-        # _new_path = copy.deepcopy(path)
         _new_path = path[:] # Creates a shallow copy of the list
         try:
             if idx < 0:
@@ -425,8 +460,7 @@ class CBBA:
             next_position = pygame.Vector2(task.position)
             distance_to_next_task_from_start += current_position.distance_to(next_position)
             # Time-discounted reward
-            AGENT_SPEED = 0.5
-            expected_reward_from_task += LAMBDA**(distance_to_next_task_from_start/AGENT_SPEED)         
+            expected_reward_from_task += LAMBDA**(distance_to_next_task_from_start/AGENT_SPEED)
             # expected_reward_from_task += (task.amount - (distance_to_next_task_from_start/self.agent.max_speed + task.amount/self.agent.work_rate))
             current_position = next_position
 

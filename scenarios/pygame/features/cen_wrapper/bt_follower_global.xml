@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Follower BT — Round 2 fairness setup with global allocation convergence gate.
+
+  Used only by `dynamic/global/{cbba,grape,hungarian}/*.yaml`.
+  `dynamic/partial/` and `static/` keep using `bt_follower.xml` (local
+  IsTaskAssigned gate).
+
+  Difference vs bt_follower.xml: wraps the movement subtree with
+  `IsAllocationConverged` so motion is permitted only after the global
+  allocation has been stable across two consecutive ticks. This makes
+  dec mode wait for the same global-consensus condition that wrapper /
+  baseline naturally enforce via leader broadcast — apples-to-apples
+  comparison for Round 2 experiments.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+        </ReactiveSequence>
+        <AssignTask/>
+      </ReactiveFallback>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsAllocationConverged/>     <!-- global gate (Round 2) -->
+          <IsTaskAssigned/>
+          <ReactiveFallback>
+            <IsTaskCompleted/>
+            <ReactiveSequence>
+              <ReactiveFallback>
+                <IsArrivedAtTarget/>
+                <MoveToTarget/>
+              </ReactiveFallback>
+              <ExecuteTask/>
+            </ReactiveSequence>
+          </ReactiveFallback>
+        </ReactiveSequence>
+        <Halt/>
+      </ReactiveFallback>
+    </Parallel>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="ApplyCenTask"
+            editable="true"/>
+    <Action ID="AssignTask"
+            editable="true"/>
+    <Action ID="ExecuteTask"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="Halt"
+            editable="true"/>
+    <Condition ID="IsAllocationConverged"
+               editable="true"/>
+    <Condition ID="IsArrivedAtTarget"
+               editable="true"/>
+    <Condition ID="IsConnectedWithLeader"
+               editable="true"/>
+    <Condition ID="IsTaskAssigned"
+               editable="true"/>
+    <Condition ID="IsTaskCompleted"
+               editable="true"/>
+    <Action ID="MoveToTarget"
+            editable="true"/>
+  </TreeNodesModel>
+
+</root>

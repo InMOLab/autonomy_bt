@@ -1,0 +1,621 @@
+platform: pygame
+
+mona:
+  # mode determines which external systems are wired up:
+  #   full_simulation : pure simulation (no real robot, no real comm)
+  #   puppet          : UDP G-commands + WhyCon (real motion, sim comm)
+  mode: puppet
+
+  # Real-robot endpoints. Active in: puppet. Ignored in: full_simulation.
+  robots:
+    - {agent_id: 0, host: 192.168.0.27, port: 8080}
+    - {agent_id: 1, host: 192.168.0.26, port: 8080}
+    - {agent_id: 2, host: 192.168.0.24, port: 8080}
+    - {agent_id: 3, host: 192.168.0.28, port: 8080}
+    - {agent_id: 4, host: 192.168.0.29, port: 8080}
+    - {agent_id: 5, host: 192.168.0.30, port: 8080}
+    - {agent_id: 6, host: 192.168.0.31, port: 8080}
+    - {agent_id: 7, host: 192.168.0.32, port: 8080}
+    - {agent_id: 8, host: 192.168.0.33, port: 8080}
+
+  udp_port: 9999          # WhyCon listener bind port. Active in: puppet. Ignored in: full_simulation.
+  distance_scale: 1.0     # UDP G-command distance scaling.   Active in: puppet. Ignored in: full_simulation.
+
+scenario: 
+  environment: scenarios.mona.letter_show
+
+decision_making:
+  plugin: scenarios.mona.letter_show.plugins.dec_hungarian.DistributedHungarian
+
+  # ── Phase 1: Super-Task allocation via GRAPE ─────────────────────
+  GRAPE:
+    cost_weight_factor: 0.03
+    social_inhibition_factor: 0.0        # mild – all group members should converge on same ST
+    initialize_partition: Distance     # Options: None; Distance
+    reinitialize_partition_on_completion: Distance
+    battery_aware: true                  # true → S-RA (battery_ratio × urgency_factor); false → Equal (base GRAPE)
+
+  # ── Phase 2: Regular-Task allocation via DistributedHungarian ────
+  Hungarian:
+    task_reward_discount_factor: 0.999
+    epsilon: 1e-10
+    dummy_cost: 0.0
+
+agents:
+  behavior_tree_xml: default_bt.xml 
+  quantity: 9
+  fixed_positions:
+    - [40, 40]      # agent 0 (top-left corner)
+    - [40, 700]     # agent 1 (bottom-left corner)
+    - [1300, 700]   # agent 2 (bottom-right corner)
+    - [1300, 40]    # agent 3 (top-right corner)
+    - [40, 370]    # agent 4 (center-left top)
+    - [1300, 246]    # agent 5 (center-left bottom)
+    - [670, 40]    # agent 6 (center-right top)
+    - [670, 700]    # agent 7 (center-right bottom)
+    - [1300, 493]    # agent 8 (center-right bottom)
+  fixed_batteries:   # Initial battery % per agent (optional; omit to use random 40~90%)
+    - 100.0   # agent 0
+    - 95.0   # agent 1
+    - 90.0   # agent 2
+    - 85.0   # agent 3
+    - 80.0   # agent 4
+    - 50.0   # agent 5
+    - 45.0   # agent 6
+    - 40.0   # agent 7
+    - 35.0   # agent 8
+  fixed_angles:     # Initial heading in radians (optional, defaults to 0)
+    - 0.00000000           #    0  degree
+    - 0.00000000           #    0  degree
+    - 3.14159265           #  180  degree
+    - 3.14159265           #  180  degree
+    - 0.00000000           #    0  degree
+    - 0.00000000           #    0  degree
+    - 1.57079632           #  90  degree
+    - 4.71238897           #  270  degree
+    - 0.00000000           #    0  degree
+  locations:
+    x_min: 0
+    x_max: 1340
+    y_min: 0
+    y_max: 740
+    non_overlap_radius: 0 
+  # --- Motion dynamics (sim-only) -----------------------------------------
+  # Used by the rotation-shim controller in full_simulation. Ignored in
+  # puppet — ESP32 firmware decides motor PWM and gains itself; the host
+  # only sends raw 'G <angle_deg> <distance_mm>' commands.
+  max_speed: 3.0
+  max_accel: 1.0
+  max_angular_speed: 0.08
+  target_approaching_radius: 50         # arrival slow-down radius
+
+  # --- Active in all modes ------------------------------------------------
+  body_radius: 40   # MONA physical footprint in simulator pixels.
+                    # Adjust together with WhyCode camera calibration so
+                    # the drawn circle matches the actual robot extent.
+  work_rate: 10  # work rate for each agent (per 1.0/simulation.sampling_freq)
+  communication_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the other agents
+  situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
+  random_exploration_duration: 1000.0 # sec
+
+super_tasks:
+  # Each group is a list of task indices (0-based) that form one Super Task.
+  # Position = average of member-task coordinates.
+  # Size:  3 tasks → 200×200 px,  6 tasks → 300×300 px,  9 tasks → 400×400 px
+  groups:
+    - tasks: [0, 1, 2]           # Super Task 0  (3 tasks)
+    - tasks: [3, 4, 5, 6, 7, 8] # Super Task 1  (6 tasks)
+
+tasks:
+  quantity: 9
+  fixed_positions:
+    - [450, 120]   # task 0 - top of stem
+    - [450, 370]   # task 1 - middle of stem
+    - [450, 620]   # task 2 - bottom of stem
+    - [600, 370]   # task 3 - top-right of bump
+    - [950, 270]   # task 4 - rightmost of bump
+    - [750, 370]   # task 5 - bottom of bump
+    - [750, 120]   # task 6 - junction (bump meets leg)
+    - [800, 495]   # task 7 - mid-leg
+    - [950, 620]   # task 8 - end of diagonal leg
+  locations:
+    x_min: 80
+    x_max: 1260
+    y_min: 80
+    y_max: 660
+    non_overlap_radius: 0
+  threshold_done_by_arrival: 15.0
+  amounts:
+    min: 30.0
+    max: 30.0
+
+  dynamic_task_generation:
+    enabled: True
+    delay_seconds: 1.0         # Wait this many wall-clock seconds after all tasks are done before generating new ones
+    max_generations: 41       # How many additional rounds to generate
+    tasks_per_generation: 9   # Should match initial task quantity
+    generations:
+      - # Generation 1: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 2: B  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [404, 104]        # stem top
+          - [404, 281]        # stem middle (junction)
+          - [404, 458]        # upper bump mid-arc
+          - [404, 636]        # stem bottom
+          - [670, 110]        # upper bump top
+          - [852, 219]        # upper bump rightmost
+          - [658, 370]        # bump junction
+          - [876, 503]        # lower bump rightmost
+          - [670, 624]        # lower bump bottom
+      - # Generation 3: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 4: T  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [196, 80]         # bar left
+          - [433, 80]         # bar center-left
+          - [670, 80]         # bar center / stem top
+          - [907, 80]         # bar center-right
+          - [1144, 80]        # bar right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem middle
+          - [670, 515]        # stem lower
+          - [670, 660]        # stem bottom
+      - # Generation 5: I  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [433, 80]         # top serif left
+          - [670, 80]         # top serif center
+          - [907, 80]         # top serif right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem center
+          - [670, 515]        # stem lower
+          - [433, 660]        # bottom serif left
+          - [670, 660]        # stem bottom
+          - [907, 660]        # bottom serif right
+      - # Generation 6: C  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [844, 115]        # top-right end
+          - [670, 80]         # top center
+          - [461, 138]        # top-left
+          - [345, 242]        # upper-left
+          - [322, 370]        # leftmost
+          - [345, 498]        # lower-left
+          - [461, 602]        # bottom-left
+          - [670, 660]        # bottom center
+          - [844, 602]        # bottom-right end
+      - # Generation 7: S  (S=1.198, y-limited: 80~660)
+        fixed_positions:
+          - [1000, 130]       # top-right end
+          - [670,  120]       # top center
+          - [340,  200]       # top-left
+          - [450,  330]       # left curve
+          - [670,  380]       # center
+          - [890,  430]       # right curve
+          - [1000, 540]       # lower-right
+          - [670,  620]       # bottom center
+          - [340,  570]       # bottom-left end
+      - # Generation 8: A  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [670, 122]        # apex
+          - [496, 274]        # upper-left diagonal
+          - [844, 274]        # upper-right diagonal
+          - [394, 425]        # crossbar left
+          - [946, 425]        # crossbar right
+          - [578, 425]        # crossbar center
+          - [761, 425]        # lower-left leg
+          - [292, 594]        # lower-left foot
+          - [1048, 594]       # lower-right foot
+      - # Generation 9: N  (S=1.318x1.1, y-limited: 80~660)
+        fixed_positions:
+          - [440, 104]        # top-left
+          - [440, 370]        # mid-left
+          - [440, 636]        # bottom-left
+          - [537, 237]        # diagonal upper
+          - [670, 370]        # diagonal center
+          - [803, 503]        # diagonal lower
+          - [900, 104]        # top-right
+          - [900, 370]        # mid-right
+          - [900, 636]        # bottom-right
+      - # Generation 10: D  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [420, 80]         # top-left
+          - [420, 273]        # mid-upper-left
+          - [420, 466]        # mid-lower-left
+          - [420, 660]        # bottom-left
+          - [657, 80]         # top-junction
+          - [894, 172]        # upper-right curve
+          - [1000, 370]       # rightmost
+          - [894, 568]        # lower-right curve
+          - [657, 660]        # bottom-junction
+      - # Generation 11: A  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [670, 122]        # apex
+          - [496, 274]        # upper-left diagonal
+          - [844, 274]        # upper-right diagonal
+          - [394, 425]        # crossbar left
+          - [946, 425]        # crossbar right
+          - [578, 425]        # crossbar center
+          - [761, 425]        # lower-left leg
+          - [292, 594]        # lower-left foot
+          - [1048, 594]       # lower-right foot
+      - # Generation 12: U  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [382, 80]         # top-left
+          - [382, 251]        # mid-upper-left
+          - [382, 436]        # lower-left
+          - [503, 607]        # bottom-left curve
+          - [670, 660]        # bottom center
+          - [837, 607]        # bottom-right curve
+          - [958, 436]        # lower-right
+          - [958, 251]        # mid-upper-right
+          - [958, 80]         # top-right
+      - # Generation 13: T  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [196, 80]         # bar left
+          - [433, 80]         # bar center-left
+          - [670, 80]         # bar center / stem top
+          - [907, 80]         # bar center-right
+          - [1144, 80]        # bar right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem middle
+          - [670, 515]        # stem lower
+          - [670, 660]        # stem bottom
+      - # Generation 14: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 15: M  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [354, 80]         # top-left
+          - [354, 370]        # mid-left
+          - [354, 660]        # bottom-left
+          - [512, 291]        # upper-left of V
+          - [670, 436]        # bottom of V
+          - [828, 291]        # upper-right of V
+          - [986, 80]         # top-right
+          - [986, 370]        # mid-right
+          - [986, 660]        # bottom-right
+      - # Generation 16: A  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [670, 122]        # apex
+          - [496, 274]        # upper-left diagonal
+          - [844, 274]        # upper-right diagonal
+          - [394, 425]        # crossbar left
+          - [946, 425]        # crossbar right
+          - [578, 425]        # crossbar center
+          - [761, 425]        # lower-left leg
+          - [292, 594]        # lower-left foot
+          - [1048, 594]       # lower-right foot
+      - # Generation 17: T  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [196, 80]         # bar left
+          - [433, 80]         # bar center-left
+          - [670, 80]         # bar center / stem top
+          - [907, 80]         # bar center-right
+          - [1144, 80]        # bar right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem middle
+          - [670, 515]        # stem lower
+          - [670, 660]        # stem bottom
+      - # Generation 18: I  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [433, 80]         # top serif left
+          - [670, 80]         # top serif center
+          - [907, 80]         # top serif right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem center
+          - [670, 515]        # stem lower
+          - [433, 660]        # bottom serif left
+          - [670, 660]        # stem bottom
+          - [907, 660]        # bottom serif right
+      - # Generation 19: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 20: N  (S=1.318x1.1, y-limited: 80~660)
+        fixed_positions:
+          - [395, 51]         # top-left
+          - [395, 370]        # mid-left
+          - [395, 689]        # bottom-left
+          - [511, 211]        # diagonal upper
+          - [670, 370]        # diagonal center
+          - [830, 530]        # diagonal lower
+          - [945, 51]         # top-right
+          - [945, 370]        # mid-right
+          - [945, 689]        # bottom-right
+      - # Generation 0: R  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [450, 120]   # task 0 - top of stem
+          - [450, 370]   # task 1 - middle of stem
+          - [450, 620]   # task 2 - bottom of stem
+          - [750, 120]   # task 3 - top-right of bump
+          - [950, 270]   # task 4 - rightmost of bump
+          - [750, 370]   # task 5 - bottom of bump
+          - [600, 370]   # task 6 - junction (bump meets leg)
+          - [800, 495]   # task 7 - mid-leg
+          - [950, 620]   # task 8 - end of diagonal leg
+      - # Generation 1: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 2: B  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [404, 104]        # stem top
+          - [404, 281]        # stem middle (junction)
+          - [404, 458]        # upper bump mid-arc
+          - [404, 636]        # stem bottom
+          - [670, 110]        # upper bump top
+          - [852, 219]        # upper bump rightmost
+          - [658, 370]        # bump junction
+          - [876, 503]        # lower bump rightmost
+          - [670, 624]        # lower bump bottom
+      - # Generation 3: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 4: T  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [196, 80]         # bar left
+          - [433, 80]         # bar center-left
+          - [670, 80]         # bar center / stem top
+          - [907, 80]         # bar center-right
+          - [1144, 80]        # bar right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem middle
+          - [670, 515]        # stem lower
+          - [670, 660]        # stem bottom
+      - # Generation 5: I  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [433, 80]         # top serif left
+          - [670, 80]         # top serif center
+          - [907, 80]         # top serif right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem center
+          - [670, 515]        # stem lower
+          - [433, 660]        # bottom serif left
+          - [670, 660]        # stem bottom
+          - [907, 660]        # bottom serif right
+      - # Generation 6: C  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [844, 115]        # top-right end
+          - [670, 80]         # top center
+          - [461, 138]        # top-left
+          - [345, 242]        # upper-left
+          - [322, 370]        # leftmost
+          - [345, 498]        # lower-left
+          - [461, 602]        # bottom-left
+          - [670, 660]        # bottom center
+          - [844, 602]        # bottom-right end
+      - # Generation 7: S  (S=1.198, y-limited: 80~660)
+        fixed_positions:
+          - [1000, 130]       # top-right end
+          - [670,  120]       # top center
+          - [340,  200]       # top-left
+          - [450,  330]       # left curve
+          - [670,  380]       # center
+          - [890,  430]       # right curve
+          - [1000, 540]       # lower-right
+          - [670,  620]       # bottom center
+          - [340,  570]       # bottom-left end
+      - # Generation 8: A  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [670, 122]        # apex
+          - [496, 274]        # upper-left diagonal
+          - [844, 274]        # upper-right diagonal
+          - [394, 425]        # crossbar left
+          - [946, 425]        # crossbar right
+          - [578, 425]        # crossbar center
+          - [761, 425]        # lower-left leg
+          - [292, 594]        # lower-left foot
+          - [1048, 594]       # lower-right foot
+      - # Generation 9: N  (S=1.318x1.1, y-limited: 80~660)
+        fixed_positions:
+          - [440, 104]        # top-left
+          - [440, 370]        # mid-left
+          - [440, 636]        # bottom-left
+          - [537, 237]        # diagonal upper
+          - [670, 370]        # diagonal center
+          - [803, 503]        # diagonal lower
+          - [900, 104]        # top-right
+          - [900, 370]        # mid-right
+          - [900, 636]        # bottom-right
+      - # Generation 10: D  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [420, 80]         # top-left
+          - [420, 273]        # mid-upper-left
+          - [420, 466]        # mid-lower-left
+          - [420, 660]        # bottom-left
+          - [657, 80]         # top-junction
+          - [894, 172]        # upper-right curve
+          - [1000, 370]       # rightmost
+          - [894, 568]        # lower-right curve
+          - [657, 660]        # bottom-junction
+      - # Generation 11: A  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [670, 122]        # apex
+          - [496, 274]        # upper-left diagonal
+          - [844, 274]        # upper-right diagonal
+          - [394, 425]        # crossbar left
+          - [946, 425]        # crossbar right
+          - [578, 425]        # crossbar center
+          - [761, 425]        # lower-left leg
+          - [292, 594]        # lower-left foot
+          - [1048, 594]       # lower-right foot
+      - # Generation 12: U  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [382, 80]         # top-left
+          - [382, 251]        # mid-upper-left
+          - [382, 436]        # lower-left
+          - [503, 607]        # bottom-left curve
+          - [670, 660]        # bottom center
+          - [837, 607]        # bottom-right curve
+          - [958, 436]        # lower-right
+          - [958, 251]        # mid-upper-right
+          - [958, 80]         # top-right
+      - # Generation 13: T  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [196, 80]         # bar left
+          - [433, 80]         # bar center-left
+          - [670, 80]         # bar center / stem top
+          - [907, 80]         # bar center-right
+          - [1144, 80]        # bar right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem middle
+          - [670, 515]        # stem lower
+          - [670, 660]        # stem bottom
+      - # Generation 14: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 15: M  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [354, 80]         # top-left
+          - [354, 370]        # mid-left
+          - [354, 660]        # bottom-left
+          - [512, 291]        # upper-left of V
+          - [670, 436]        # bottom of V
+          - [828, 291]        # upper-right of V
+          - [986, 80]         # top-right
+          - [986, 370]        # mid-right
+          - [986, 660]        # bottom-right
+      - # Generation 16: A  (S=1.160, y-limited: 80~660)
+        fixed_positions:
+          - [670, 122]        # apex
+          - [496, 274]        # upper-left diagonal
+          - [844, 274]        # upper-right diagonal
+          - [394, 425]        # crossbar left
+          - [946, 425]        # crossbar right
+          - [578, 425]        # crossbar center
+          - [761, 425]        # lower-left leg
+          - [292, 594]        # lower-left foot
+          - [1048, 594]       # lower-right foot
+      - # Generation 17: T  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [196, 80]         # bar left
+          - [433, 80]         # bar center-left
+          - [670, 80]         # bar center / stem top
+          - [907, 80]         # bar center-right
+          - [1144, 80]        # bar right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem middle
+          - [670, 515]        # stem lower
+          - [670, 660]        # stem bottom
+      - # Generation 18: I  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [433, 80]         # top serif left
+          - [670, 80]         # top serif center
+          - [907, 80]         # top serif right
+          - [670, 225]        # stem upper
+          - [670, 370]        # stem center
+          - [670, 515]        # stem lower
+          - [433, 660]        # bottom serif left
+          - [670, 660]        # stem bottom
+          - [907, 660]        # bottom serif right
+      - # Generation 19: O  (S=1.318, y-limited: 80~660)
+        fixed_positions:
+          - [670, 104]        # top (0°)
+          - [868, 166]        # upper-right (40°)
+          - [972, 324]        # right-upper (80°)
+          - [934, 503]        # right-lower (120°)
+          - [775, 621]        # lower-right (160°)
+          - [566, 621]        # lower-left (200°)
+          - [406, 503]        # left-lower (240°)
+          - [368, 324]        # left-upper (280°)
+          - [472, 166]        # upper-left (320°)
+      - # Generation 20: N  (S=1.318x1.1, y-limited: 80~660)
+        fixed_positions:
+          - [395, 51]         # top-left
+          - [395, 370]        # mid-left
+          - [395, 689]        # bottom-left
+          - [511, 211]        # diagonal upper
+          - [670, 370]        # diagonal center
+          - [830, 530]        # diagonal lower
+          - [945, 51]         # top-right
+          - [945, 370]        # mid-right
+          - [945, 689]        # bottom-right
+
+simulation:
+  random_seed: 1  # Random seed (integer ≥ 1), or None to disable seeding
+  sampling_freq: 10.0 
+  speed_up_factor: 0 # 0 mean max booster; 1 means normal; 10 means 10-times faster
+  max_simulation_time: 0 # 0 means no limit
+  agent_track_size: 400  
+  screen_width: 1340 
+  screen_height: 740 
+  gif_recording_fps: 0.05  
+  task_visualisation_factor: 3  # visualization factor for tasks : 10 means converting 10 amount to 1 pixel
+  profiling_mode: False
+  rendering_mode: Screen  # Options: Screen; Terminal; None
+  rendering_options: # Only works if `rendering_mode` is `Screen`
+    agent_tail: True
+    agent_communication_topology: True
+    agent_situation_awareness_circle: False
+    agent_id: True
+    agent_work_done: True
+    agent_assigned_task_id: True
+    agent_path_to_assigned_tasks: True
+    agent_battery: True   # vertical battery bar next to each agent (MonaSim)
+    task_id: False
+  saving_options:
+    output_folder: output
+    with_date_subfolder: True
+    save_gif: False  # Only works if `rendering_mode` is `Screen`
+    save_timewise_result_csv: True    
+    save_agentwise_result_csv: True
+    save_config_yaml: True
+  bt_visualiser:
+    enabled: True       # Set to True to enable BT visualisation, False to disable
+    agent_id: 6         # ID of the agent whose behaviour tree will be visualised

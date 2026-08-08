@@ -14,12 +14,19 @@ agent_max_accel = config['agents']['max_accel']
 max_angular_speed = config['agents']['max_angular_speed']
 agent_approaching_to_target_radius = config['agents']['target_approaching_radius']
 agent_track_size = config['simulation']['agent_track_size']
-agent_communication_radius = config['agents']['communication_radius']
+agent_communication_radius = config.get('agents', {}).get('communication_radius', 0)
 agent_situation_awareness_radius = config.get('agents', {}).get('situation_awareness_radius', 0)
 sampling_time = 1.0 / config['simulation']['sampling_freq']  # in seconds
 
 
 class BaseAgent:
+    # Set by `BTRunner.step` at tick start; lets `local_message_receive` read a frozen peer-message view (avoids cascade).
+    _tick_message_snapshot = None
+    # Set by `BTRunner.step` at tick start; pairwise squared-distance matrix + agents list (row order) + agent_id→row index, used by `get_agents_nearby` for fast numpy-mask filtering.
+    _tick_dist_sq = None
+    _tick_agents = None
+    _tick_agent_index = None
+
     def __init__(self, agent_id, position, tasks_info):
         self.agent_id = agent_id
         self.type = None
@@ -128,20 +135,20 @@ class BaseAgent:
 
     def broadcast_message(self, to_all = False):
         if to_all:
-            agents_nearby = getattr(self, "agents_info", []) # Global agents
+            agents_nearby = [a for a in getattr(self, "agents_info", []) if a.agent_id != self.agent_id]
         else:
-            agents_nearby = getattr(self, "agents_nearby", []) # Local agents
+            agents_nearby = getattr(self, "agents_nearby", [])  # already excludes self
         for other_agent in agents_nearby:
-            if other_agent.agent_id != self.agent_id:
-                other_agent.receive_message(self.message_to_share)
+            other_agent.receive_message(self.message_to_share)
 
     def local_message_receive(self):
         self.reset_messages_received()  # Clear previous messages
-        self.agents_nearby = self.get_agents_nearby()
+        self.agents_nearby = self.get_agents_nearby()  # already excludes self
+        # Read from BTRunner's tick-start snapshot if available (avoids cascade); otherwise live peer state.
+        snapshot = type(self)._tick_message_snapshot
         for other_agent in self.agents_nearby:
-            if other_agent.agent_id != self.agent_id:
-                self.receive_message(other_agent.message_to_share)
-                # other_agent.receive_message(self.message_to_share)
+            msg = snapshot[other_agent.agent_id] if snapshot is not None else other_agent.message_to_share
+            self.receive_message(msg)
 
         return self.agents_nearby
 
@@ -254,33 +261,53 @@ class BaseAgent:
 
     def get_agents_nearby(self, radius = None):
         _communication_radius = self.communication_radius if radius is None else radius
-        if _communication_radius > 0:
-            communication_radius_squared = _communication_radius ** 2
-            local_agents_info = [
-                other_agent
-                for other_agent in self.agents_info
-                if (self.position - other_agent.position).length_squared() <= communication_radius_squared and other_agent.agent_id !=self.agent_id
-            ]
-        else:
-            local_agents_info = self.agents_info
-        return local_agents_info
+        if _communication_radius <= 0:
+            return [a for a in self.agents_info if a.agent_id != self.agent_id]
+
+        r_sq = _communication_radius * _communication_radius
+        # Fast path: numpy mask over BTRunner's tick-start distance matrix.
+        cls = type(self)
+        dist_sq = cls._tick_dist_sq
+        bt_agents = cls._tick_agents
+        agent_index = cls._tick_agent_index
+        if dist_sq is not None and bt_agents is not None and agent_index is not None:
+            import numpy as np
+            my_idx = agent_index.get(self.agent_id)
+            if my_idx is not None:
+                mask = dist_sq[my_idx] <= r_sq
+                mask[my_idx] = False
+                if self.agents_info is bt_agents:
+                    return [bt_agents[i] for i in np.where(mask)[0]]
+                # `agents_info` differs from BTRunner's list (e.g. cen_wrapper leader toggle); filter by membership.
+                info_ids = {a.agent_id for a in self.agents_info}
+                return [bt_agents[i] for i in np.where(mask)[0] if bt_agents[i].agent_id in info_ids]
+        # Fallback: per-pair distance — used when called outside BTRunner.step context.
+        my_pos = self.position
+        return [
+            other_agent
+            for other_agent in self.agents_info
+            if other_agent.agent_id != self.agent_id
+            and my_pos.distance_squared_to(other_agent.position) <= r_sq
+        ]
 
 
     def get_tasks_nearby(self, radius = None, with_completed_task = True):
         _situation_awareness_radius = self.situation_awareness_radius if radius is None else radius
         if _situation_awareness_radius > 0:
-            situation_awareness_radius_squared = _situation_awareness_radius ** 2
+            r_sq = _situation_awareness_radius * _situation_awareness_radius
+            my_pos = self.position
             if with_completed_task: # Default
                 local_tasks_info = [
                     task
                     for task in self.tasks_info
-                    if (self.position - task.position).length_squared() <= situation_awareness_radius_squared
+                    if my_pos.distance_squared_to(task.position) <= r_sq
                 ]
             else:
                 local_tasks_info = [
                     task
                     for task in self.tasks_info
-                    if not task.completed and (self.position - task.position).length_squared() <= situation_awareness_radius_squared
+                    if not task.completed
+                    and my_pos.distance_squared_to(task.position) <= r_sq
                 ]
         else:
             if with_completed_task: # Default

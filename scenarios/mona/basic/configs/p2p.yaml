@@ -1,0 +1,145 @@
+platform: pygame
+
+mona:
+  # mode determines which external systems are wired up:
+  #   full_simulation : pure simulation (no real robot, no real comm)
+  #   puppet          : UDP G-commands + WhyCon (real motion, sim comm)
+  #   p2p             : ESP-NOW relay     (sim motion, real comm)
+  #   offboard        : both              (real motion, real comm)
+  mode: p2p
+
+  # Real-robot endpoints. Active in: puppet, p2p, offboard. Ignored in: full_simulation.
+  robots:
+    - {agent_id: 0, host: 192.168.0.27, port: 8080}   # MONA #1
+    - {agent_id: 1, host: 192.168.0.26, port: 8080}   # MONA #2
+    - {agent_id: 2, host: 192.168.0.24, port: 8080}   # MONA #3
+    - {agent_id: 3, host: 192.168.0.28, port: 8080}   # MONA #4
+
+  # udp_port: 9999          # WhyCon listener bind port. Active in: puppet, offboard. Ignored in: full_simulation, p2p.
+  # distance_scale: 1.0     # UDP G-command distance scaling.   Active in: puppet, offboard. Ignored in: full_simulation, p2p.
+
+scenario:
+  environment: scenarios.mona.basic
+
+# decision_making: # GRAPE
+#   plugin: plugins.mrta.grape.grape.GRAPE
+#   GRAPE:
+#     local_convergence: False                    # If True, agent treats itself as converged once its own task no longer changes (ignores neighbours)
+#     cost_weight_factor: 1.0
+#     social_inhibition_factor: 1                 # Higher value better suits MT-SR-type problems
+#     initialize_partition: Distance              # Options: None; Distance
+#     reinitialize_partition_on_completion: Distance   # Options: None; Distance
+
+decision_making: # CBBA  (active)
+  plugin: plugins.mrta.cbba.cbba.CBBA
+  CBBA:
+    max_tasks_per_agent: 5
+    task_reward_discount_factor: 0.999
+    winning_bid_cancel: True
+    acceptable_empty_bundle_duration: 500           # sec
+
+# decision_making: # Greedy (FirstClaim)
+#   plugin: plugins.mrta.greedy.greedy.FirstClaimGreedy
+#   FirstClaimGreedy:
+#     mode: MinDist                               # Options: Random; MinDist; MaxUtil
+#     weight_factor_cost: 10000.0                 # Only used in MaxUtil mode
+#     enforced_collaboration: False
+
+# decision_making: # Distributed Hungarian
+#   plugin: plugins.mrta.hungarian.dec_hungarian.DistributedHungarian
+#   Hungarian:
+#     task_reward_discount_factor: 0.999
+#     epsilon: 1e-10
+#     dummy_cost: 0.0
+
+# decision_making: # CBAA
+#   plugin: plugins.mrta.cbaa.cbaa.CBAA
+#   CBAA: {}                                       # no parameters
+
+agents:
+  behavior_tree_xml: default_bt.xml
+  quantity: 4
+  fixed_positions:
+    - [40, 40]      # agent 0
+    - [40, 700]     # agent 1
+    - [1300, 700]   # agent 2
+    - [1300, 40]    # agent 3
+  fixed_angles:
+    - 0.78539816    # agent 0  45 deg
+    - 5.49778714    # agent 1 315 deg
+    - 3.92699082    # agent 2 225 deg
+    - 2.35619449    # agent 3 135 deg
+  locations:
+    x_min: 0
+    x_max: 1340
+    y_min: 0
+    y_max: 740
+    non_overlap_radius: 0
+  # --- Motion dynamics (sim-only) -----------------------------------------
+  # Used by the rotation-shim controller in full_simulation / p2p where
+  # motion is simulated. Ignored in puppet / offboard — ESP32 firmware
+  # decides motor PWM and gains itself; the host only sends raw
+  # 'G <angle_deg> <distance_mm>' commands.
+  max_speed: 0.85
+  max_accel: 0.05
+  max_angular_speed: 0.025
+  target_approaching_radius: 50         # arrival slow-down radius
+
+  # --- Active in all modes ------------------------------------------------
+  body_radius: 40   # MONA physical footprint in simulator pixels.
+                    # Adjust together with WhyCode camera calibration so
+                    # the drawn circle matches the actual robot extent.
+  work_rate: 10                         # task-completion rate per BT tick (ExecuteTask)
+  communication_radius: 2000            # peer-message range filter (in-process or ESP-NOW relayed)
+  situation_awareness_radius: 2000      # task-list visibility radius (GatherLocalInfo)
+  random_exploration_duration: 1000.0   # used only if BT invokes Explore; sec between waypoint resamples
+
+tasks:
+  quantity: 100
+  locations:
+    x_min: 40
+    x_max: 1300
+    y_min: 40
+    y_max: 700
+    non_overlap_radius: 0
+  threshold_done_by_arrival: 40.0
+  amounts:
+    min: 6.0
+    max: 60.0
+  dynamic_task_generation:
+    enabled: False
+    interval_seconds: 2000
+    max_generations: 3
+    tasks_per_generation: 25
+
+simulation:
+  random_seed: 1
+  sampling_freq: 10.0
+  speed_up_factor: 0   # 0 = max booster; 1 = real-time; 10 = 10x faster
+  max_simulation_time: 0
+  agent_track_size: 400
+  screen_width: 1340
+  screen_height: 740
+  gif_recording_fps: 0.05
+  task_visualisation_factor: 3
+  profiling_mode: False
+  rendering_mode: Screen
+  rendering_options:
+    agent_tail: True
+    agent_communication_topology: True
+    agent_situation_awareness_circle: False
+    agent_id: True
+    agent_work_done: True
+    agent_assigned_task_id: True
+    agent_path_to_assigned_tasks: True
+    task_id: False
+  saving_options:
+    output_folder: output
+    with_date_subfolder: True
+    save_gif: False
+    save_timewise_result_csv: True
+    save_agentwise_result_csv: True
+    save_config_yaml: True
+  bt_visualiser:
+    enabled: True
+    agent_id: 0

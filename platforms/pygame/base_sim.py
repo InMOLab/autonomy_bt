@@ -1,5 +1,6 @@
 import os
 os.environ['SDL_VIDEO_WINDOW_POS'] = "0,30"  # top-left corner
+import time
 import pygame
 import importlib
 from platforms.pygame.utils_pygame import pre_render_text, ResultSaver
@@ -85,6 +86,10 @@ class BaseSim:
 
         # Initialize simulation time
         self.simulation_time = 0.0
+        self.tick_count = 0
+        self.wall_clock_start = time.perf_counter()
+        self.wall_clock_paused_total = 0.0
+        self.wall_clock_pause_start = None
         self.last_print_time = 0.0   # Variable to track the last time tasks_left was printed
 
         # Initialize dynamic task generation time
@@ -118,6 +123,7 @@ class BaseSim:
             agent.update()
         # Status retrieval
         self.simulation_time += self.sampling_time
+        self.tick_count += 1
         self.tasks_left = sum(1 for task in self.tasks if not task.completed)
         if self.tasks_left == 0:
             self.mission_completed = not self.generation_enabled or self.generation_count == self.max_generations
@@ -171,9 +177,27 @@ class BaseSim:
             task.draw(self.screen)
 
 
+    @property
+    def wall_clock(self):
+        paused = self.wall_clock_paused_total
+        if self.game_paused and self.wall_clock_pause_start is not None:
+            paused += time.perf_counter() - self.wall_clock_pause_start
+        return time.perf_counter() - self.wall_clock_start - paused
+
+    def _toggle_pause(self):
+        self.game_paused = not self.game_paused
+        if self.game_paused:
+            self.wall_clock_pause_start = time.perf_counter()
+        else:
+            if self.wall_clock_pause_start is not None:
+                self.wall_clock_paused_total += time.perf_counter() - self.wall_clock_pause_start
+                self.wall_clock_pause_start = None
+
     def draw_status_overlay(self):
-        task_time_text = pre_render_text(f'Tasks left: {self.tasks_left}; Time: {self.simulation_time:.2f}s', 36, (0, 0, 0))
-        self.screen.blit(task_time_text, (self.screen_width - 350, 20))
+        wall = self.wall_clock
+        text = f'Tick: {self.tick_count}  Wall: {wall:.1f}s  Tasks left: {self.tasks_left}'
+        task_time_text = pre_render_text(text, 36, (0, 0, 0))
+        self.screen.blit(task_time_text, (self.screen_width - 470, 20))
 
     def render(self):
         if self.rendering_mode == "Screen" and self.screen:
@@ -226,8 +250,13 @@ class BaseSim:
             self.clock.tick(self.sampling_freq*self.speed_up_factor)
 
     def close(self):
-        pygame.quit()
+        # Save first, then tear down pygame. On Linux/X11, calling
+        # pygame.quit() before save_results() leaves matplotlib's X
+        # connection in an inconsistent state (BadWindow / X_GetProperty
+        # error). Windows / macOS aren't affected, but the safer order
+        # works on all three.
         self.save_results()
+        pygame.quit()
 
     def save_results():
         # Define it at your scenario-specific `env.py`
@@ -247,14 +276,21 @@ class BaseSim:
                     print(f"[{self.simulation_time:.2f}] Added {self.tasks_per_generation} new tasks: Generation {self.generation_count}.")
 
     def handle_keyboard_events(self):
-        for event in pygame.event.get():
+        # Fetch events once (pygame.event.get() is destructive) and dispatch to sub-handlers.
+        events = pygame.event.get()
+        self._handle_keyboard(events)
+        self._handle_mouse(events)
+        self._handle_extra_keys(events)
+
+    def _handle_keyboard(self, events):
+        for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
                     self.running = False
                 elif event.key == pygame.K_p:
-                    self.game_paused = not self.game_paused
+                    self._toggle_pause()
                 elif event.key == pygame.K_s:
                     if not self.recording:
                         self.recording = True
@@ -268,7 +304,10 @@ class BaseSim:
                 elif event.key == pygame.K_r:
                     print("Scenario reset!")
                     self.reset()
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+
+    def _handle_mouse(self, events):
+        for event in events:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 click_pos = pygame.Vector2(event.pos)
                 for agent in self.agents:
                     if (agent.position - click_pos).length() <= 20:
@@ -286,6 +325,10 @@ class BaseSim:
                     if hasattr(self.dragging_target, 'reset_movement'):
                         self.dragging_target.reset_movement()
                     self.dragging_target = None
+
+    def _handle_extra_keys(self, events):
+        """Hook for subclasses to handle scenario-specific keys. Default: no-op."""
+        pass
 
     def record_screen_frame(self):
         # Capture frame for recording

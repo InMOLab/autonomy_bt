@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+          <RelayDecMessages/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="ApplyCenTask"
+            editable="true"/>
+    <Action ID="AssignTask"
+            editable="true"/>
+    <Action ID="ExecuteTask"
+            editable="true"/>
+    <Action ID="FilterClaimedTasks"
+            editable="true"/>
+    <Action ID="ForwardCenAllocation"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="Halt"
+            editable="true"/>
+    <Action ID="MoveToTarget"
+            editable="true"/>
+    <Action ID="RelayDecMessages"
+            editable="true"/>
+    <Action ID="UnpackRelayedMessages"
+            editable="true"/>
+    <Condition ID="IsArrivedAtTarget"
+               editable="true"/>
+    <Condition ID="IsConnectedWithLeader"
+               editable="true"/>
+    <Condition ID="IsTaskAssigned"
+               editable="true"/>
+    <Condition ID="IsTaskCompleted"
+               editable="true"/>
+  </TreeNodesModel>
+
+</root>
