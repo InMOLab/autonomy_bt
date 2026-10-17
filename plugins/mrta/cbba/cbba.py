@@ -10,6 +10,9 @@ LAMBDA = config['decision_making']['CBBA']['task_reward_discount_factor']
 WINNING_BID_CANCEL = config['decision_making']['CBBA']['winning_bid_cancel']
 NO_BUNDLE_DURATION = config['decision_making']['CBBA']['acceptable_empty_bundle_duration']
 FIRST_TASK_CONVERGENCE = config['decision_making']['CBBA'].get('first_task_convergence', False)
+# 'none' (original CBBA: the bundle only grows, and is truncated when outbid) or 'full' (CBBA with Full Bundle
+# Reset, Johnson et al. 2012 / Buckman et al. 2019: the bundle is rebuilt from scratch every round).
+BUNDLE_RESET = config['decision_making']['CBBA'].get('bundle_reset', 'none')
 AGENT_SPEED = 0.5
 
 
@@ -267,6 +270,17 @@ class CBBA:
         #     else:
         #         for task_id, bid in new_bids.items():
         #             self.y[task_id] = bid
+
+        if BUNDLE_RESET == 'full':
+            # Full bundle reset: drop the whole bundle (releasing own bids) and rebuild it from scratch with the
+            # current winning-bid lists. Tasks this agent still wins come back first; the reset and the rebuild
+            # happen before broadcasting, so peers never see a transient release.
+            for task_id in self.bundle:
+                if self.z.get(task_id) == self.agent.agent_id:
+                    self.y[task_id] = float('-inf')
+                    self.z[task_id] = None
+            self.bundle = []
+            self.path = []
 
         if True:  # Phase.BUILD_BUNDLE
             self.build_bundle(local_tasks_info)

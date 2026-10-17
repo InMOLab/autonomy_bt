@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-solver, follower BT for CBBA and Hungarian (GRAPE uses bt_ablation/bt_follower_solver_grape_no_rules.xml). The leader's
+  plan takes priority outside its range. Connected followers apply the plan, pass it one hop
+  further and relay the messages of followers that are not leader-connected, together with the
+  copies relayed to them (RelayMessages scope="outside" nested="1") — they are the ones that can
+  bridge disconnected followers separated by the leader's cluster. Disconnected followers unpack
+  what is relayed to them, drop the tasks claimed by the plan, run the decentralised algorithm
+  and pass the plan one hop further. ForwardCenAllocation stays inside the branches, so a plan is
+  forwarded only on ticks on which one was received. With no leader in range this tree reduces
+  to the plain decentralised algorithm.
+  Variant "commit" (2026-10-05, the strongest Leader-as-solver of report 261005: grace + reset + commit): on the tick
+  the follower leaves the cluster its plugin gets a fresh state (ResetOnLeave) and, as long as a task of the bundle the
+  plan gave it still exists, it keeps executing that bundle without running the plugin (CommitToPlan; covers the
+  isolation rule). Only when the bundle is gone does it run the decentralised plugin. Pair with
+  bt_leader_solver.xml (AssignCenTask keep_departed="1"). bt_ablation/bt_follower_solver_no_commit.xml is the reset-only form.
+  ResetOnLeave sits after UnpackRelayedMessages (and before CommitToPlan / FilterClaimedTasks), so that it reads the
+  same inbox FilterClaimedTasks caches (a forwarded plan may arrive nested in a relayed message).
+  2026-10-07: FilterClaimedTasks, AssignTask and ForwardCenAllocation sit under a Parallel (see bt_ablation/bt_follower_solver_no_rules.xml),
+  so the plan is forwarded on every tick on which the follower runs its plugin. A committed follower forwards nothing
+  (decided 10-07: it executes the plan it left with and does not pass on plans it does not follow).
+  2026-10-08 (report 261007 "수정사항"; Fig. 2 skeleton): the disconnected branch is
+  Seq([OnLeave], Fallback([Keep], Parallel([Ingest], [Filter], AssignTask, [EmitDec]))) — the chattering slots
+  [OnLeave] and [Keep] above, the conflict slots around AssignTask below, all of the latter ticked every tick.
+  iso keeps the follower's own last decision (KeepPlanWhenIsolated source="own") in every design.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayMessages scope="outside" nested="1"/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <ResetProtocolState/>
+          <ReactiveFallback>
+            <CommitToPlan/>
+            <KeepPlanWhenIsolated source="own"/>
+            <Parallel>
+              <UnpackRelayedMessages/>
+              <FilterClaimedTasks/>
+              <AssignTask/>
+              <ForwardCenAllocation/>
+            </Parallel>
+          </ReactiveFallback>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

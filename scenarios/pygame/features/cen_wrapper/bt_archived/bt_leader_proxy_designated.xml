@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-proxy with designated relaying: as bt_static/bt_leader_proxy.xml, but the wrapper names one
+  relayer per disconnected follower and publishes it with the plan (designated="1").
+  Pair with bt_follower_proxy*_designated.xml.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="bt_leader">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <CentralisationWrapper designated="1">
+        <AssignTask/>
+      </CentralisationWrapper>
+      <TeachBT/>
+    </Parallel>
+  </BehaviorTree>
+</root>

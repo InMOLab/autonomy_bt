@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-solver, leader BT. A dedicated centralised solver (yaml decision_making.cen_plugin:
+  SGA / centralised Hungarian / centralised GRAPE) computes the plan for the followers in range
+  (AssignCenTask); TeachBT broadcasts it. Followers: bt_ablation/bt_follower_solver_no_rules.xml (CBBA, Hungarian),
+  bt_ablation/bt_follower_solver_grape_no_rules.xml (GRAPE).
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="bt_leader">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <AssignCenTask/>
+      <TeachBT/>
+    </Parallel>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="AssignCenTask"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="TeachBT"
+            editable="true"/>
+  </TreeNodesModel>
+
+</root>

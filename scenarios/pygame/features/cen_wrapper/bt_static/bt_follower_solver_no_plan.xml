@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-solver boundary-slot ablation (2026-10-07, report 261007 §5.2, Table 1): bt_static/bt_follower_solver.xml
+  (fixed tree of 10-07) with the relay only (no plan forwarding). The two slots are [RelayIn] = RelayMessages (connected followers relay the messages
+  of followers that are not leader-connected) and [EmitOut]/[EmitDec] = ForwardCenAllocation (the plan passed on one
+  hop at a time). Static allocation snapshot, CBBA and Hungarian.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <RelayMessages scope="outside" nested="1"/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <Parallel>
+            <FilterClaimedTasks/>
+            <AssignTask/>
+          </Parallel>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <Sequence>
+        <IsTaskAssigned/>
+        <Halt/>
+      </Sequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

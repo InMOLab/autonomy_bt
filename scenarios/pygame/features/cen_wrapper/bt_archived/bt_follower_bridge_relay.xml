@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Follower BT variant for CBBA / Hungarian (candidate replacement for bt_archived/bt_follower_full_mesh_relay.xml).
+
+  Differences from bt_archived/bt_follower_full_mesh_relay.xml:
+    - RelayMessages only in the leader-connected branch: connected followers bridge the
+      decentralised protocol across the centrally allocated cluster; disconnected followers run the
+      plain decentralised algorithm and do not re-broadcast other followers' messages.
+    - ForwardCenAllocation moved out of both branches to a common position after the regime
+      selector, so the leader's plan is forwarded on every tick in either regime (also on ticks
+      where a disconnected follower has no task). It must stay after the selector: the dec plugin
+      rebuilds the outbox when AssignTask runs, and ForwardCenAllocation uses the plan found by
+      ApplyCenTask / FilterClaimedTasks earlier in the same tick.
+  With no leader in range this tree reduces to the plain decentralised algorithm.
+
+  DO NOT USE AS IS (checked 2026-10-03, dynamic missions, follower radius 150):
+  at partial leader coverage (leader radius 250 / 500) 17-39 % of missions never finish.
+  Forwarding on every tick lets disconnected followers echo old copies of the leader's plan to
+  each other indefinitely (the plan has no expiry in the pygame runs), and a follower that leaves
+  the leader's range on the way to a task is told by the forwarded plan that the task now belongs
+  to a follower still inside, so it stops just outside the boundary. Kept only as a record of
+  that experiment (experiments/data/check_bridge_relay_*.csv).
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <RelayMessages scope="all" nested="1"/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <ForwardCenAllocation/>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

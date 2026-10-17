@@ -1,8 +1,19 @@
-"""Platform-agnostic BT nodes for the CentralisationWrapper (cen_wrapper) architecture.
+"""Platform-agnostic BT nodes for hybrid centralised/decentralised MRTA.
 
-Originally defined inside `scenarios/pygame/features/cen_wrapper/bt_nodes.py`;
-extracted here so non-pygame consumers (e.g. the ROS2 cen_wrapper test scenario)
-can import the same nodes without depending on the pygame scenario module.
+Three ways to use a leader whose communication range covers only part of the team:
+  Leader-as-proxy  (CentralisationWrapper + EmitProxyMessage + RelayMessages scope="outside")
+                   the leader runs the team's decentralised MRTA protocol on behalf of the
+                   followers it reaches; the two parts of the team exchange protocol messages.
+  Leader-as-relay  (RelayMessages scope="all" nested="1" on the leader; UnpackRelayedMessages on
+                   the followers) the leader only forwards messages.
+  Leader-as-solver (AssignCenTask + TeachBT on the leader; ApplyCenTask / ForwardCenAllocation /
+                   RelayMessages scope="outside" nested="1" / UnpackRelayedMessages /
+                   FilterClaimedTasks on the followers) the leader runs a dedicated centralised
+                   solver and its plan has priority.
+
+Originally defined inside `scenarios/pygame/features/cen_wrapper/bt_nodes.py`; extracted here so
+non-pygame consumers (e.g. the ROS 2 cen_wrapper test scenario) can import the same nodes without
+depending on the pygame scenario module.
 """
 import importlib
 import time
@@ -132,18 +143,82 @@ class TeachBT(SyncAction):
         return Status.SUCCESS
 
 
-class AssignCenTask(SyncAction):
-    """[Leader] Run the centralised allocation plugin (yaml `decision_making.cen_plugin`)."""
+class DepartedFollower:
+    """Leader-side stand-in for a follower that left the leader's range (AssignCenTask keep_departed): the agent
+    surface the centralised solvers read (id, type, position) plus the visualisation hook."""
 
-    def __init__(self, name, agent):
+    def __init__(self, source):
+        self.agent_id = source.agent_id
+        self.type = source.type
+        self.position = pygame.Vector2(source.position)
+        self.planned_tasks = []
+
+    def set_planned_tasks(self, task_list):
+        self.planned_tasks = task_list
+
+
+class AssignCenTask(SyncAction):
+    """[Leader] Run the centralised allocation plugin (yaml `decision_making.cen_plugin`).
+
+    `keep_departed` 0 (default) / 1 (Leader-as-solver "grace"): a follower that leaves the range stays in the
+    solver's problem as a stand-in at its last known position, until the task the solver gave it is gone or a
+    relayed message from it arrives (its position and own task are then taken from that message). Without this the
+    solver hands a departed follower's task to an inside robot on the tick it leaves, and takes it back when the
+    follower steps in again, so the two robots chatter at the boundary.
+    """
+
+    def __init__(self, name, agent, keep_departed=0):
         super().__init__(name, self._assign)
         if cen_decision_making_class is None:
             raise RuntimeError(
                 "[AssignCenTask] yaml is missing `decision_making.cen_plugin`."
             )
         self.cen_decision_maker = cen_decision_making_class(agent)
+        self.keep_departed = bool(keep_departed)
+        self._seen = {}       # follower_id -> last live agent object seen in range
+        self._departed = {}   # follower_id -> DepartedFollower
 
     def _assign(self, agent, blackboard):
+        if self.keep_departed:
+            agents = list(blackboard.get('local_agents_info') or [])
+            live_ids = {a.agent_id for a in agents}
+            for a in agents:
+                if a.type != 'Leader':
+                    self._seen[a.agent_id] = a
+                    self._departed.pop(a.agent_id, None)
+            plan = (blackboard.get('central_plan') or {}).get('task_allocations') or {}
+            local_task_ids = set((blackboard.get('local_tasks_info') or {}).keys())
+            relayed = {}
+            for message in agent.messages_received:
+                for nested in message.get('relayed_messages', None) or []:
+                    sid = nested.get('agent_id')
+                    if sid is not None and sid not in live_ids and nested.get('type') != 'Leader':
+                        relayed[sid] = nested
+            for fid, src in list(self._seen.items()):
+                if fid in live_ids:
+                    continue
+                given = [t for t in (plan.get(fid) or []) if t in local_task_ids]
+                if fid not in self._departed:
+                    if not given:
+                        self._seen.pop(fid, None)      # left with no task: nothing to keep
+                        continue
+                    self._departed[fid] = DepartedFollower(src)
+                stand_in = self._departed[fid]
+                msg = relayed.get(fid)
+                if msg is not None:
+                    # A relayed message says where the departed robot is and what it chose. The solvers take no
+                    # pinned assignments, so its choice is expressed as its position (standing on that task).
+                    own = msg.get('assigned_task_id')
+                    tasks = blackboard.get('local_tasks_info') or {}
+                    if own in tasks and getattr(tasks[own], 'position', None) is not None:
+                        stand_in.position = pygame.Vector2(tasks[own].position)
+                    elif msg.get('position') is not None:
+                        pos = msg['position']
+                        stand_in.position = pygame.Vector2(pos[0], pos[1]) if isinstance(pos, (list, tuple)) else pygame.Vector2(pos)
+                if not given and msg is None:
+                    self._departed.pop(fid); self._seen.pop(fid, None)   # its task is gone and no news: release it
+                    continue
+            blackboard['local_agents_info'] = agents + list(self._departed.values())
         self.cen_decision_maker.decide(blackboard)
         # The plugin writes blackboard['central_plan']; TeachBT then broadcasts it to followers.
         return Status.SUCCESS
@@ -181,7 +256,7 @@ def _freshness_score(msg):
 
 
 # =============================================================================
-# Cen branch (in-range follower) — order matches `bt_follower_static_full.xml`
+# Cen branch (in-range follower)
 # =============================================================================
 
 class ApplyCenTask(SyncAction):
@@ -219,55 +294,225 @@ class ForwardCenAllocation(SyncAction):
         return Status.SUCCESS
 
 
-class RelayDecMessages(SyncAction):
-    """Bundle 1-hop dec-peer messages into our outbox so cen-followers bridge the mesh."""
+class EmitProxyMessage(SyncAction):
+    """[Connected follower] Broadcast the protocol message computed by this follower's proxy.
+
+    Must come after ApplyCenTask (which caches the latest plan on the blackboard). The plan carries a
+    per-follower proxy message for boundary followers (CentralisationWrapper) and, with export="merged",
+    one consensus copy plus every proxy's own fields, from which this node rebuilds the proxy message of
+    any connected follower. Whenever a proxy message is available the outbox is replaced by it, so a
+    connected follower never keeps broadcasting the stale message its own plugin wrote before it entered.
+
+    `self_apply` 0 (default) / 1: also keep the proxy message for the follower itself (`_proxy_message_for_self`,
+    with the leader's id in `_leader_id`); `AdoptProxyState` hands it to the plugin when the follower leaves.
+    """
+
+    def __init__(self, name, agent, self_apply=0):
+        super().__init__(name, self._emit)
+        self.self_apply = bool(self_apply)
+
+    def _emit(self, agent, blackboard):
+        plan = blackboard.get('_latest_central_plan') or {}
+        proxy_message = (plan.get('proxy_messages') or {}).get(agent.agent_id)
+        own = (plan.get('proxy_own') or {}).get(agent.agent_id)
+        if own is not None and plan.get('proxy_common'):
+            # export="merged": the consensus copy plus this follower's own fields is its proxy's message
+            proxy_message = dict(plan['proxy_common'])
+            proxy_message.update(own)
+            if 'agent_id' not in proxy_message:
+                proxy_message['agent_id'] = agent.agent_id
+        if proxy_message is not None:
+            agent.message_to_share = dict(proxy_message)
+            if self.self_apply:
+                agent._proxy_message_for_self = dict(proxy_message)
+                leader_ids = [m.get('agent_id') for m in agent.messages_received if m.get('type') == 'Leader']
+                if leader_ids:
+                    agent._leader_id = leader_ids[0]
+        return Status.SUCCESS
+
+
+class AdoptProxyState(SyncAction):
+    """[Disconnected follower, before AssignTask] Feed the follower's last proxy message to its plugin.
+
+    Pairs with `EmitProxyMessage self_apply="1"`. While connected, the follower's own plugin does not run, so its
+    state is stale when it leaves. On the first decentralised tick the kept proxy message is appended to the inbox
+    once, and the plugin merges it the way it merges any neighbour's message. It is handed over under the leader's
+    id, because a consensus protocol ignores a message carrying the receiver's own id (CBBA skips it). Without a kept
+    message the node does nothing.
+    """
 
     def __init__(self, name, agent):
+        super().__init__(name, self._adopt)
+
+    def _adopt(self, agent, blackboard):
+        proxy_message = getattr(agent, '_proxy_message_for_self', None)
+        if proxy_message is not None:
+            message = dict(proxy_message)
+            leader_id = getattr(agent, '_leader_id', None)
+            if leader_id is not None:
+                message['agent_id'] = leader_id
+            message['adopted'] = True   # so that KeepPlanWhenIsolated's isolation test ignores it (it is not a neighbour)
+            agent.messages_received = list(agent.messages_received) + [message]
+            agent._proxy_message_for_self = None
+        return Status.SUCCESS
+
+
+class ResetProtocolState(SyncAction):
+    """[Disconnected follower, before AssignTask] Give the follower's plugin a fresh state on the first tick after it
+    leaves the cluster (Leader-as-solver "reset").
+
+    While connected, the follower's own plugin does not run, so its protocol state (CBBA winning lists, GRAPE
+    partition) is stale when it leaves. A dedicated solver produces only a plan, not protocol state the follower
+    could inherit (cf. AdoptProxyState), so the plugin is re-created and rebuilds its state from the messages it now
+    hears. Algorithm-agnostic: it re-instantiates whatever `agent.decision_maker` is.
+    """
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._reset)
+        self._reset_for_plan = None     # created_at of the plan the follower held at its last reset
+        self._branch_cached = object()  # created_at of the plan this branch itself cached at its previous tick
+
+    def _reset(self, agent, blackboard):
+        # `_latest_central_plan` is written by ApplyCenTask (connected branch: the leader's plan) and, in the solver
+        # tree, by FilterClaimedTasks later in this branch (a plan a neighbour forwarded). The follower has just left
+        # if the plan on the blackboard is not the one this branch cached at its previous tick and is newer than the
+        # plan at the last reset.
+        plan = blackboard.get('_latest_central_plan') or {}
+        created = plan.get('created_at')
+        if created is not None and created != self._reset_for_plan and created != self._branch_cached:
+            if getattr(agent, 'decision_maker', None) is not None:
+                agent.decision_maker = type(agent.decision_maker)(agent)
+            self._reset_for_plan = created
+        # What FilterClaimedTasks will cache this tick; a forwarded plan may also arrive nested in a relayed message.
+        inbox = list(agent.messages_received)
+        inbox += [n for m in agent.messages_received for n in (m.get('relayed_messages') or [])]
+        forwarded = _get_latest_central_plan(inbox, _CENTRAL_PLAN_TTL)
+        self._branch_cached = forwarded.get('created_at') if forwarded else None
+        return Status.SUCCESS
+
+
+class KeepPlanWhenIsolated(SyncAction):
+    """[Disconnected follower, in place of AssignTask while isolated] Keep the follower's last decision.
+
+    Isolation: the inbox holds no message from another robot. An isolated follower would run its plugin on itself
+    alone and might pick a different task, then flip between the two at the boundary. Instead it keeps its own last
+    task while that task still exists. Returns SUCCESS with the task set, or FAILURE (not isolated, or no task to
+    keep) so that a ReactiveFallback continues to AssignTask:
+        <ReactiveFallback> <KeepPlanWhenIsolated source="own"/> <AssignTask/> </ReactiveFallback>
+    `source="own"` (the follower's own last task) is the only mode.
+    """
+
+    def __init__(self, name, agent, source="own"):
+        super().__init__(name, self._keep)
+        if source != "own":
+            raise ValueError(f"[KeepPlanWhenIsolated] source must be 'own', not {source!r}")
+
+    def _keep(self, agent, blackboard):
+        # The message AdoptProxyState hands over (marked `adopted`) is the follower's own proxy state, not a neighbour.
+        if any(not m.get('adopted') for m in agent.messages_received):
+            return Status.FAILURE
+        task_id = getattr(agent, 'assigned_task_id', None)
+        if task_id is None or task_id not in (blackboard.get('local_tasks_info') or {}):
+            return Status.FAILURE
+        blackboard['assigned_task_id'] = task_id
+        agent.assigned_task_id = task_id
+        return Status.SUCCESS
+
+
+class CommitToPlan(SyncAction):
+    """[Disconnected follower, in place of AssignTask] Keep executing the plan's bundle, isolated or not.
+
+    Leader-as-solver "commit": a follower that left the leader's range keeps the first task of the bundle the plan
+    gave it that still exists, until none is left; only then does it run its own plugin. The whole bundle is followed
+    because the leader's stand-in (AssignCenTask keep_departed) holds the whole bundle too. It also covers
+    KeepPlanWhenIsolated. Returns SUCCESS with the task set, or FAILURE (no plan held, or every task of the bundle
+    gone) so that a ReactiveFallback continues to the plugin.
+    """
+
+    def __init__(self, name, agent):
+        super().__init__(name, self._keep)
+
+    def _keep(self, agent, blackboard):
+        plan = blackboard.get('_latest_central_plan') or {}
+        bundle = (plan.get('task_allocations') or {}).get(agent.agent_id, []) or []
+        tasks = blackboard.get('local_tasks_info') or {}
+        task_id = next((t for t in bundle if t in tasks), None)
+        if task_id is None:
+            return Status.FAILURE
+        blackboard['assigned_task_id'] = task_id
+        agent.assigned_task_id = task_id
+        return Status.SUCCESS
+
+
+class RelayMessages(SyncAction):
+    """Put the messages heard from other followers into our outbox (`relayed_messages`) so that
+    they travel one hop further. Leader messages are never relayed.
+
+    `scope`   "outside" (default): only followers that are not in the leader's latest plan, i.e. not
+              leader-connected (the plan is cached by ApplyCenTask earlier in the branch); "all": every
+              follower heard.
+    `nested`  0 (default): first-hand copies only. 1: also pass on, for every follower not heard
+              first-hand, the freshest copy that was relayed to us (two hops; the copy is stripped of its
+              own relays), and stamp the outbox as fresh.
+
+    Leader-as-proxy followers use scope="outside" (after EmitProxyMessage, which may replace the
+    outbox), Leader-as-solver followers scope="outside" nested="1", and the leader of
+    Leader-as-relay scope="all" nested="1".
+    """
+
+    def __init__(self, name, agent, scope="outside", nested=0):
         super().__init__(name, self._stage)
+        if scope not in ("outside", "all"):
+            raise ValueError(f"[RelayMessages] scope must be 'outside' or 'all', not {scope!r}")
+        self.scope = scope
+        self.nested = bool(nested)
 
     def _stage(self, agent, blackboard):
         self_agent_id = agent.agent_id
-        relayed_by_sender_id = {}     # peer agent_id → flattened message dict
-        score_by_sender_id = {}       # peer agent_id → freshness score
-        direct_sender_ids = set()     # peers reached 1-hop direct (always trump nested)
+        plan = blackboard.get('_latest_central_plan') or {}
+        connected_ids = set((plan.get('task_allocations') or {}).keys()) if self.scope == "outside" else set()
+        relayed_by_sender_id = {}     # follower id → its message, without the relays it carries
+        score_by_sender_id = {}       # follower id → freshness score of that message
 
-        # Pass 1: direct copies — always 1-hop, trump any prior/later nested.
+        # Pass 1: first-hand copies.
         for message in agent.messages_received:
             sender_id = message.get('agent_id')
-            if sender_id is None or sender_id == self_agent_id:
+            if sender_id is None or sender_id == self_agent_id or sender_id in connected_ids:
                 continue
             if message.get('type') == 'Leader':
                 continue
             relayed_by_sender_id[sender_id] = _strip_nested_relay(message)
             score_by_sender_id[sender_id] = _freshness_score(message)
-            direct_sender_ids.add(sender_id)
 
-        # Pass 2: nested copies — direct trumps nested; among nested-only peers
-        # pick the highest freshness score (otherwise iteration order can let a
-        # stale snapshot win and propagate forever).
-        for message in agent.messages_received:
-            sender_id = message.get('agent_id')
-            for nested_message in message.get('relayed_messages', []):
-                nested_sender_id = nested_message.get('agent_id')
-                if (nested_sender_id is None
-                        or nested_sender_id == self_agent_id
-                        or nested_sender_id == sender_id):
-                    continue
-                if nested_sender_id in direct_sender_ids:
-                    continue  # direct trumps nested
-                nested_score = _freshness_score(nested_message)
-                if (nested_sender_id not in relayed_by_sender_id
-                        or nested_score > score_by_sender_id[nested_sender_id]):
-                    relayed_by_sender_id[nested_sender_id] = _strip_nested_relay(nested_message)
-                    score_by_sender_id[nested_sender_id] = nested_score
+        # Pass 2: copies relayed to us. A first-hand copy always wins; among relayed copies the
+        # freshest wins (otherwise iteration order could let a stale copy circulate forever).
+        if self.nested:
+            direct_sender_ids = set(relayed_by_sender_id)
+            for message in agent.messages_received:
+                relayer_id = message.get('agent_id')
+                for nested_message in message.get('relayed_messages', None) or []:
+                    nested_sender_id = nested_message.get('agent_id')
+                    if (nested_sender_id is None
+                            or nested_sender_id == self_agent_id
+                            or nested_sender_id == relayer_id
+                            or nested_sender_id in connected_ids):
+                        continue
+                    if nested_sender_id in direct_sender_ids:
+                        continue
+                    nested_score = _freshness_score(nested_message)
+                    if (nested_sender_id not in relayed_by_sender_id
+                            or nested_score > score_by_sender_id[nested_sender_id]):
+                        relayed_by_sender_id[nested_sender_id] = _strip_nested_relay(nested_message)
+                        score_by_sender_id[nested_sender_id] = nested_score
 
         agent.message_to_share['relayed_messages'] = list(relayed_by_sender_id.values())
-        agent.message_to_share['updated_at'] = time.time()
+        if self.nested:
+            agent.message_to_share['updated_at'] = time.time()
         return Status.SUCCESS
 
 
 # =============================================================================
-# Dec branch (out-of-range follower) — order matches `bt_follower_static_full.xml`
+# Dec branch (out-of-range follower)
 # =============================================================================
 
 class UnpackRelayedMessages(SyncAction):
@@ -385,7 +630,7 @@ class FilterClaimedTasks(SyncAction):
 
 
 # =============================================================================
-# CentralisationWrapper — paper's central architectural contribution
+# CentralisationWrapper (Leader-as-proxy)
 # =============================================================================
 
 class FollowerProxy:
@@ -406,36 +651,82 @@ class FollowerProxy:
 
 
 class CentralisationWrapper(Node):
-    """Decorator: simulate the dec MRTA child on each follower; broadcast on consensus."""
+    """[Leader] Decorator that runs the decentralised MRTA child once per leader-connected
+    follower, on a proxy of that follower, and publishes the result as the leader's plan.
 
-    def __init__(self, name, child):
+    The whole team runs ONE decentralised MRTA protocol. For the followers the leader reaches, the
+    protocol is executed here (one FollowerProxy per follower; the plugin runs unchanged); for the
+    others it is executed by the followers themselves. The two parts exchange messages in the
+    protocol's own format instead of through a plan that disconnected followers must obey:
+
+      outbound  the protocol message of a boundary follower's proxy is attached to the plan
+                (`proxy_messages`); the follower broadcasts it as its own (EmitProxyMessage), so
+                disconnected neighbours see an ordinary peer.
+      inbound   connected followers relay what they hear first-hand from disconnected followers
+                (RelayMessages scope="outside"); those messages enter every proxy's inbox, and so
+                does the last message of a follower that has just entered (written while outside).
+
+    A boundary follower is a connected follower that relayed at least one disconnected follower's
+    message this tick. With the whole team connected nothing is relayed and no proxy message
+    leaves the leader. The proxies keep whatever the protocol itself keeps about robots outside the
+    cluster (`_sanitize_cached_outbox`), so the cluster behaves like a set of ordinary participants.
+
+    XML attributes:
+      inbound, outbound  1 (default) / 0: switch one mechanism off (ablation).
+      export             "boundary" (default): attach the messages of boundary followers' proxies;
+                         "merged": also attach ONE copy of the protocol's consensus fields
+                         (`proxy_common`) plus every proxy's robot-specific fields (`proxy_own`), from
+                         which EmitProxyMessage rebuilds the proxy message of any connected follower.
+    """
+
+    def __init__(self, name, child, inbound=1, outbound=1, export="boundary"):
         super().__init__(name)
         self.type = "CentralisationWrapper"
         self.children = [child]
         self.previous_allocations = {}
+        self.inbound = bool(inbound)
+        self.outbound = bool(outbound)
+        if export not in ("boundary", "merged"):
+            raise ValueError(f"[CentralisationWrapper] export must be 'boundary' or 'merged', not {export!r}")
+        self.export = export
         # Leader-side per-follower proxies.
         self.proxies = {}  # follower_id -> FollowerProxy
         # Leader-side cache of each proxy's last-tick `message_to_share`.
         self.proxy_outboxes = {}  # follower_id -> dict (last message_to_share)
+        # follower_id -> the proxy's last non-empty protocol message (export="merged"). A protocol message stays
+        # valid until the plugin issues a new one; GRAPE, for one, writes a message only on a coalition change.
+        self.proxy_last_messages = {}
 
     async def run(self, agent, blackboard):
         agents = blackboard['local_agents_info']
 
-        # Per-tick output.
-        current_tick_allocations = {}
-        current_tick_primary = {}  # primary-only view, for convergence check
-
         local_follower_ids = {a.agent_id for a in agents if a.type != 'Leader'}
+        entering_ids = local_follower_ids - set(self.proxies)   # in range now, no proxy yet: they have just entered
         self.proxy_outboxes = {follower_id: o for follower_id, o in self.proxy_outboxes.items() if follower_id in local_follower_ids}
+        self.proxy_last_messages = {follower_id: o for follower_id, o in self.proxy_last_messages.items() if follower_id in local_follower_ids}
         self.proxies = {follower_id: p for follower_id, p in self.proxies.items() if follower_id in local_follower_ids}
+        local_task_ids = set(blackboard.get('local_tasks_info', {}).keys())
+
+        # Inbound: what connected followers heard from disconnected ones, plus the last message of a follower that
+        # has just entered (written while it was outside, so it carries what it learnt out there).
+        outside_messages, boundary_ids = self._collect_outside_messages(
+            agent.messages_received, local_follower_ids)
+        for message in agent.messages_received:
+            if message.get('agent_id') in entering_ids and message.get('type') != 'Leader':
+                outside_messages.append(_strip_nested_relay(message))
+        if not self.inbound:
+            outside_messages = []
 
         # Sanitize cached outboxes — blocks Pass-2 ghost reintroduction via the outbox feedback loop.
-        local_task_ids = set(blackboard.get('local_tasks_info', {}).keys())
         outbox_snapshot = {
             follower_id: self._sanitize_cached_outbox(msg, local_follower_ids, local_task_ids)
             for follower_id, msg in self.proxy_outboxes.items()
         }
+        export_ids = boundary_ids if self.outbound else set()   # outbound: proxies whose message is shipped with the plan
 
+        current_tick_allocations = {}
+        current_tick_primary = {}  # primary-only view, for convergence check
+        proxy_messages = {}
         for target_agent in agents:
             if target_agent.type == 'Leader':
                 continue
@@ -446,11 +737,11 @@ class CentralisationWrapper(Node):
             proxy = self.proxies[follower_id]
             # Refresh per-tick fields (pygame: copy from live target).
             proxy.position = pygame.Vector2(target_agent.position)
-            # Build messages_received from the frozen outbox snapshot (excluding self).
+            # Build messages_received from the frozen outbox snapshot (excluding self) and the inbound messages.
             proxy.messages_received = [
                 msg for other_follower_id, msg in outbox_snapshot.items()
                 if other_follower_id != follower_id and msg
-            ]
+            ] + list(outside_messages)
             proxy.message_to_share = {}
             # Shallow-copy leader's blackboard so each per-target invocation has its own I/O scope.
             target_blackboard = dict(blackboard)
@@ -467,6 +758,10 @@ class CentralisationWrapper(Node):
 
             # Cache this proxy's outbox — visible only on the *next* tick's iteration.
             self.proxy_outboxes[follower_id] = dict(proxy.message_to_share) if proxy.message_to_share else {}
+            if proxy.message_to_share:
+                self.proxy_last_messages[follower_id] = dict(proxy.message_to_share)
+                if follower_id in export_ids:
+                    proxy_messages[follower_id] = dict(proxy.message_to_share)
 
             # Mirror the proxy's plan onto the live target for path-overlay visualisation. Defensive `hasattr` — non-pygame platforms (e.g. ROS2) pass shim agent views that don't expose this method and handle visualisation via their own broadcast topic.
             if hasattr(target_agent, 'set_planned_tasks'):
@@ -478,15 +773,38 @@ class CentralisationWrapper(Node):
         # recent allocation — gates on consensus only the BT status signal,
         # not the broadcast itself (avoids stale-plan windows when team
         # membership changes mid-run).
-        blackboard['central_plan'] = {
+        plan = {
             'task_allocations': dict(current_tick_allocations),
+            'proxy_messages': proxy_messages,
             'created_at': time.time(),
         }
+        if self.outbound and self.export == "merged":
+            plan['proxy_common'], plan['proxy_own'] = self._merged_export()
+        blackboard['central_plan'] = plan
 
         if self._is_consensus_reached(current_tick_primary):
             return Status.SUCCESS
         self.previous_allocations = current_tick_primary.copy()
         return Status.RUNNING
+
+    @staticmethod
+    def _collect_outside_messages(leader_inbox, local_follower_ids):
+        """Returns (freshest relayed message per follower that is not leader-connected, ids of the boundary
+        followers that relayed them)."""
+        outside = {}
+        boundary_ids = set()
+        for message in leader_inbox:
+            for nested in message.get('relayed_messages', None) or []:
+                sender_id = nested.get('agent_id')
+                if sender_id is None or sender_id in local_follower_ids:
+                    continue
+                if nested.get('type') == 'Leader':
+                    continue
+                boundary_ids.add(message.get('agent_id'))
+                if (sender_id not in outside
+                        or _freshness_score(nested) > _freshness_score(outside[sender_id])):
+                    outside[sender_id] = _strip_nested_relay(nested)
+        return list(outside.values()), boundary_ids
 
     def _is_consensus_reached(self, current_allocations):
         """Consensus = every currently-active agent's allocation matches the
@@ -498,10 +816,26 @@ class CentralisationWrapper(Node):
 
     @staticmethod
     def _sanitize_cached_outbox(msg, local_follower_ids, local_task_ids):
-        """Strip agents_info/tasks_info entries outside the leader's local view."""
+        """Strip only the `tasks_info` entries outside the leader's local view. `agents_info` is protocol state about
+        robots outside the cluster, which the protocol itself never drops (the decentralised Hungarian coordinates
+        through it alone)."""
         sanitized = dict(msg)
-        if isinstance(sanitized.get('agents_info'), list):
-            sanitized['agents_info'] = [a for a in sanitized['agents_info'] if extract_agent_id(a) in local_follower_ids]
         if isinstance(sanitized.get('tasks_info'), list):
             sanitized['tasks_info'] = [t for t in sanitized['tasks_info'] if extract_task_id(t) in local_task_ids]
         return sanitized
+
+    # Fields of a protocol message that belong to the sender alone; everything else is consensus state that the
+    # proxies share once they agree (CBBA winning lists, GRAPE partition / evolution number, Hungarian robot list).
+    OWN_FIELDS = ('agent_id', 'assigned_task_id', 'planned_tasks_id', 'position', 'mutex_tiebreak', 'updated_at')
+
+    def _merged_export(self):
+        """One consensus copy (from the freshest of the proxies' last messages) and every proxy's own fields."""
+        live = {fid: m for fid, m in self.proxy_last_messages.items() if m}
+        if not live:
+            return {}, {}
+        # A message carrying a consensus counter (`evolution_number`, GRAPE) wins by that counter, otherwise by
+        # wall-clock freshness.
+        freshest = max(live.values(), key=lambda m: (m.get('evolution_number', 0) or 0, _freshness_score(m)))
+        common = {k: v for k, v in freshest.items() if k not in self.OWN_FIELDS}
+        own = {fid: {k: v for k, v in m.items() if k in self.OWN_FIELDS} for fid, m in live.items()}
+        return common, own

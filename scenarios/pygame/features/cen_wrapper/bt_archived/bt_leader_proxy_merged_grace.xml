@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-proxy leader BT with stand-in grace (trial, 2026-10-08, report 261007): bt_leader_proxy.xml with
+  CentralisationWrapperGrace, which keeps a departed follower's proxy in the protocol as a stand-in at its last known
+  position until its task is gone or a relayed message from it arrives (scenario bt_nodes.py). Pair with
+  bt_follower_proxy.xml.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="bt_leader">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <CentralisationWrapperGrace export="merged">
+        <AssignTask/>
+      </CentralisationWrapperGrace>
+      <TeachBT/>
+    </Parallel>
+  </BehaviorTree>
+</root>

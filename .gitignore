@@ -13,3 +13,5 @@ log/
 **/experiments/figures/
 **/experiments/logs/
 **/experiments/result/
+**/experiments/99_archived/
+**/experiments/02_data/

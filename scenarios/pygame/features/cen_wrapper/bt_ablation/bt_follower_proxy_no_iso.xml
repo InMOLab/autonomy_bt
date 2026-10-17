@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-proxy follower BT, variant "adopt" (boundary-behaviour study, 2026-10-05): as bt_ablation/bt_follower_proxy_no_rules.xml,
+  but a connected follower also keeps its proxy's protocol message for itself (EmitProxyMessage self_apply="1")
+  and, on leaving the cluster, hands it to its plugin before deciding (AdoptProxyState), so that it decides from
+  the state its proxy had instead of its own stale state. Pair with a leader whose wrapper has export="merged" (bt_leader_proxy.xml).
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <EmitProxyMessage self_apply="1"/>
+          <RelayMessages scope="outside"/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <AdoptProxyState/>
+          <AssignTask/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

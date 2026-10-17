@@ -44,10 +44,17 @@ def msg_deserialize_hook(d):
 
 def snapshot_message(msg):
     """Recursively copy dict / set / list (the mutable containers that
-    plugins mutate); leave custom objects (Agent / Task — which carry
-    pygame.font.Font and are not deep-copyable, but plugins never mutate
-    them anyway) as shared references.
+    plugins mutate) and pygame.Vector2 values; leave custom objects
+    (Agent / Task — which carry pygame.font.Font and are not deep-copyable,
+    but plugins never mutate them anyway) as shared references.
+
+    Vector2 must be copied: an agent's `position` is one object updated in
+    place, so a shared reference inside a message would keep showing the
+    sender's current position after the message was sent — even to robots
+    that can no longer hear it.
     """
+    if isinstance(msg, pygame.math.Vector2):
+        return pygame.math.Vector2(msg)
     if isinstance(msg, dict):
         return {k: snapshot_message(v) for k, v in msg.items()}
     if isinstance(msg, set):

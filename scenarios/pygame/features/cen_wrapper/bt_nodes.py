@@ -22,7 +22,12 @@ from plugins.cen_wrapper.bt_nodes import (
     TeachBT,
     ApplyCenTask,
     ForwardCenAllocation,
-    RelayDecMessages,
+    EmitProxyMessage,
+    AdoptProxyState,
+    KeepPlanWhenIsolated,
+    CommitToPlan,
+    ResetProtocolState,
+    RelayMessages,
     UnpackRelayedMessages,
     FilterClaimedTasks,
     IsConnectedWithLeader,
@@ -36,12 +41,17 @@ from core.utils import config
 # ─── BT Node Registration ──────────────────────────────────────────────
 CUSTOM_ACTION_NODES = [
     # `AssignTask` and `GatherLocalInfo` come from core / platforms (imported above).
-    'AssignCenTask',          # cen-side: leader runs centralised plugin (sga/cen_grape/hungarian)
-    'ApplyCenTask',           # follower: applies leader's broadcast result
-    'RelayDecMessages',       # mesh-relay [cen]: stage dec-peer msgs into outgoing relay payload
-    'UnpackRelayedMessages',  # mesh-relay [dec]: flatten incoming relay payload for AssignTask
-    'FilterClaimedTasks',     # mesh-relay [dec]: drop cen-claimed tasks/agents from dec view
-    'ForwardCenAllocation',   # mesh-relay [dec]: forward leader's task_allocations into mesh
+    'AssignCenTask',          # Leader-as-solver: leader runs the dedicated centralised solver (sga/cen_grape/hungarian)
+    'ApplyCenTask',           # connected follower: applies the leader's plan
+    'EmitProxyMessage',       # Leader-as-proxy, connected follower: broadcasts its proxy's protocol message
+    'AdoptProxyState',        # Leader-as-proxy, follower leaving the cluster: hands its proxy's last message to its plugin (with EmitProxyMessage self_apply="1")
+    'KeepPlanWhenIsolated',   # iso: isolated follower keeps its own last decision
+    'CommitToPlan',           # Leader-as-solver commit: follower that left keeps the plan's bundle until it is gone (covers iso)
+    'ResetProtocolState',     # Leader-as-solver reset: the follower's own protocol state is cleared on leaving
+    'RelayMessages',          # relays heard follower messages (scope outside|all, nested)
+    'UnpackRelayedMessages',  # flattens relayed messages into the inbox for AssignTask
+    'FilterClaimedTasks',     # Leader-as-solver, disconnected follower: drops plan-claimed tasks/robots
+    'ForwardCenAllocation',   # Leader-as-solver: passes the leader's plan one hop further
     'MoveToTarget',
     'ExecuteTask',
     'TeachBT',
@@ -57,7 +67,7 @@ CUSTOM_CONDITION_NODES = [
 ]
 
 CUSTOM_DECORATOR_NODES = [
-    'CentralisationWrapper',
+    'CentralisationWrapper',  # Leader-as-proxy: runs the decentralised plugin on proxies of the connected followers
 ]
 
 BTNodeList.ACTION_NODES.extend(CUSTOM_ACTION_NODES)
