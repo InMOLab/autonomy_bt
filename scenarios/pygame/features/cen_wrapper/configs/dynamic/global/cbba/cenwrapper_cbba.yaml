@@ -20,12 +20,12 @@ agents:
   # ─────────────────────────────────────────────────────────────────────
   types:
     Leader:
-      behavior_tree_xml: bt_leader_wrapper.xml
+      behavior_tree_xml: bt_static/bt_leader_proxy.xml
       quantity: 1
       communication_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the other agents
       situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks
     Follower:
-      behavior_tree_xml: bt_follower_global.xml
+      behavior_tree_xml: bt_archived/bt_follower_proxy_global.xml
       quantity: 10
       communication_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the other agents
       situation_awareness_radius: 2000 # 0 represents "global", meaning that each agent can access to the information of all the tasks

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Decentralised-only follower that reads relayed messages but does not relay itself (GRAPE, whose hybrid follower tree has no relay either). Used with bt_leader_relay.xml.
+  Variant "hold" (2026-10-05): an isolated follower keeps its own last decision instead of re-solving alone
+  (KeepPlanWhenIsolated source="own"); the relay-side counterpart of the proxy's iso rule (report 261005, C2-6a).
+  2026-10-08 (report 261007 "수정사항"; Fig. 2 skeleton): the disconnected branch is
+  Seq([OnLeave], Fallback([Keep], Parallel([Ingest], [Filter], AssignTask, [EmitDec]))) — the chattering slots
+  [OnLeave] and [Keep] above, the conflict slots around AssignTask below, all of the latter ticked every tick.
+  iso keeps the follower's own last decision (KeepPlanWhenIsolated source="own") in every design.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <KeepPlanWhenIsolated source="own"/>
+        <Parallel>
+          <UnpackRelayedMessages/>
+          <AssignTask/>
+        </Parallel>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

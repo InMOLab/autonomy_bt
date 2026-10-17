@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-proxy follower BT, variant "iso" (boundary-behaviour study, 2026-10-05): as bt_ablation/bt_follower_proxy_no_rules.xml,
+  but a disconnected follower that hears nobody keeps the task of the last plan it held (KeepPlanWhenIsolated)
+  instead of deciding on its own; AssignTask runs as usual when it hears someone or holds no usable plan.
+  2026-10-08: iso keeps the follower's own last decision (source="own"), whether it came from the leader's plan or was
+  made with the outside followers, as the relay's iso does (report 261007; until 10-07 the last plan's task, "plan").
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <EmitProxyMessage/>
+          <RelayMessages scope="outside"/>
+        </ReactiveSequence>
+        <ReactiveFallback>
+          <KeepPlanWhenIsolated source="own"/>
+          <AssignTask/>
+        </ReactiveFallback>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

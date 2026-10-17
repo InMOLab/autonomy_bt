@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-proxy, leader BT. CentralisationWrapper runs the decentralised MRTA plugin (AssignTask)
+  once per leader-connected follower, on a proxy of that follower, feeds the proxies the messages
+  that connected followers relay from disconnected ones (inbound) and attaches the protocol
+  messages of the boundary followers' proxies to the plan (outbound); TeachBT broadcasts the plan.
+  See plugins/cen_wrapper/bt_nodes.py. Variant export="merged" (boundary-behaviour study, 2026-10-05): the plan
+  also carries one copy of the protocol's consensus fields and every proxy's own fields, so every connected
+  follower can keep its proxy's state (bt_follower_proxy_adopt*.xml) at the cost of one consensus copy.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="bt_leader">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <CentralisationWrapper export="merged">
+        <AssignTask/>
+      </CentralisationWrapper>
+      <TeachBT/>
+    </Parallel>
+  </BehaviorTree>
+</root>

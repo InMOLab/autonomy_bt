@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Variant of bt_ablation/bt_follower_solver_no_rules.xml in which connected followers relay every follower they hear
+  (RelayMessages scope="all" nested="1") instead of the followers that are not leader-connected.
+  This is the Leader-as-solver follower of the results labelled planprio_d (report, before
+  2026-10-04); bt_ablation/bt_follower_solver_no_rules.xml is the current one.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayMessages scope="all" nested="1"/>
+        </ReactiveSequence>
+        <ReactiveSequence>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+        </ReactiveSequence>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

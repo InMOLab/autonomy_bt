@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-solver, leader BT. A dedicated centralised solver (yaml decision_making.cen_plugin:
+  SGA / centralised Hungarian / centralised GRAPE) computes the plan for the followers in range
+  (AssignCenTask); TeachBT broadcasts it. Followers: bt_ablation/bt_follower_solver_no_rules.xml (CBBA, Hungarian),
+  bt_ablation/bt_follower_solver_grape_no_rules.xml (GRAPE).
+  Variant "grace" (2026-10-05): a follower that leaves the range stays in the solver's problem at its last known
+  position until its task is gone or a relayed message from it arrives (AssignCenTask keep_departed="1"); the
+  solver-side counterpart of what the proxy's wrapper does by construction (report 261005, C2-6a).
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="bt_leader">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <AssignCenTask keep_departed="1"/>
+      <TeachBT/>
+    </Parallel>
+  </BehaviorTree>
+
+  <!-- Description of Node Models (used by Groot) -->
+  <TreeNodesModel>
+    <Action ID="AssignCenTask"
+            editable="true"/>
+    <Action ID="GatherLocalInfo"
+            editable="true"/>
+    <Action ID="TeachBT"
+            editable="true"/>
+  </TreeNodesModel>
+
+</root>

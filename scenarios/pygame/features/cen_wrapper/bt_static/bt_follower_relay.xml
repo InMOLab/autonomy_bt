@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Static-allocation version of bt_ablation/bt_follower_relay_no_rules.xml (leader-relay baseline): the follower
+  runs the plain decentralised algorithm on its direct messages plus those relayed by the
+  leader, and does not move. Used with bt_leader_relay.xml.
+  2026-10-08 (report 261007 "수정사항"; Fig. 2 skeleton): the disconnected branch is
+  Seq([OnLeave], Fallback([Keep], Parallel([Ingest], [Filter], AssignTask, [EmitDec]))) — the chattering slots
+  [OnLeave] and [Keep] above, the conflict slots around AssignTask below, all of the latter ticked every tick.
+  iso keeps the follower's own last decision (KeepPlanWhenIsolated source="own") in every design.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <Parallel>
+        <UnpackRelayedMessages/>
+        <AssignTask/>
+      </Parallel>
+      <Sequence>
+        <IsTaskAssigned/>
+        <Halt/>
+      </Sequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

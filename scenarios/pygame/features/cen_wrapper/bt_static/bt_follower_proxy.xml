@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-proxy, follower BT (static allocation snapshot, as bt_static/bt_follower_dec.xml). Connected followers apply the leader's plan, broadcast
+  the protocol message of their proxy (EmitProxyMessage; the leader sends one to boundary
+  followers only) and relay the messages of followers that are not leader-connected
+  (RelayMessages scope="outside"); disconnected followers run the plain decentralised
+  algorithm. The same tree is used for CBBA, Hungarian and GRAPE.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <EmitProxyMessage/>
+          <RelayMessages scope="outside"/>
+        </ReactiveSequence>
+        <AssignTask/>
+      </ReactiveFallback>
+      <Sequence>
+        <IsTaskAssigned/>
+        <Halt/>
+      </Sequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

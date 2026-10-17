@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-solver, follower BT for CBBA and Hungarian (GRAPE uses bt_ablation/bt_follower_solver_grape_no_rules.xml). The leader's
+  plan takes priority outside its range. Connected followers apply the plan, pass it one hop
+  further and relay the messages of followers that are not leader-connected, together with the
+  copies relayed to them (RelayMessages scope="outside" nested="1") — they are the ones that can
+  bridge disconnected followers separated by the leader's cluster. Disconnected followers unpack
+  what is relayed to them, drop the tasks claimed by the plan, run the decentralised algorithm
+  and pass the plan one hop further. ForwardCenAllocation stays inside the branches, so a plan is
+  forwarded only on ticks on which one was received. With no leader in range this tree reduces
+  to the plain decentralised algorithm.
+  2026-10-07: on the disconnected branch FilterClaimedTasks, AssignTask and ForwardCenAllocation sit under a Parallel,
+  which ticks them in order on every tick; its result is AssignTask's (the other two always succeed). In a sequence,
+  ForwardCenAllocation was skipped whenever AssignTask failed (the algorithm has not converged, or gives this follower
+  no task), and since the plugin rewrites the whole outbox on every decision, the plan dropped out of the outbox on
+  those ticks. A follower two hops out then lost the plan each time its neighbour re-planned (seed 39, R_f = R_L = 500,
+  CBBA 15/60: the two never converged). For the same reason ForwardCenAllocation must come after AssignTask.
+  2026-10-08 (report 261007 "수정사항"; Fig. 2 skeleton): the disconnected branch is
+  Seq([OnLeave], Fallback([Keep], Parallel([Ingest], [Filter], AssignTask, [EmitDec]))) — the chattering slots
+  [OnLeave] and [Keep] above, the conflict slots around AssignTask below, all of the latter ticked every tick.
+  iso keeps the follower's own last decision (KeepPlanWhenIsolated source="own") in every design.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayMessages scope="outside" nested="1"/>
+        </ReactiveSequence>
+        <Parallel>
+          <UnpackRelayedMessages/>
+          <FilterClaimedTasks/>
+          <AssignTask/>
+          <ForwardCenAllocation/>
+        </Parallel>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>

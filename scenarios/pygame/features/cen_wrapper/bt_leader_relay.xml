@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Relay-only leader BT (baseline for the leader-relay experiment). The leader computes no plan:
+  it only re-broadcasts the messages of the followers it can reach, so that followers run the
+  decentralised algorithm over a network in which the leader acts as a communication hub.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="bt_leader">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <RelayMessages scope="all" nested="1"/>
+    </Parallel>
+  </BehaviorTree>
+</root>

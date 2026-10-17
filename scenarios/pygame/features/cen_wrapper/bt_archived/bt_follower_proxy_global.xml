@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  bt_archived/bt_follower_global.xml (full-coverage dynamic comparison, with the global
+  allocation-convergence gate) with the two bridging nodes of bt_ablation/bt_follower_proxy_no_rules.xml in the
+  connected branch. With the whole team in the leader's range the two nodes have nothing to
+  emit or relay, so this tree is the bridged follower under the same gate as the other modes
+  of the full-coverage comparison.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <EmitProxyMessage/>
+          <RelayMessages scope="outside"/>
+        </ReactiveSequence>
+        <AssignTask/>
+      </ReactiveFallback>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsAllocationConverged/>
+          <IsTaskAssigned/>
+          <ReactiveFallback>
+            <IsTaskCompleted/>
+            <ReactiveSequence>
+              <ReactiveFallback>
+                <IsArrivedAtTarget/>
+                <MoveToTarget/>
+              </ReactiveFallback>
+              <ExecuteTask/>
+            </ReactiveSequence>
+          </ReactiveFallback>
+        </ReactiveSequence>
+        <Halt/>
+      </ReactiveFallback>
+    </Parallel>
+  </BehaviorTree>
+</root>

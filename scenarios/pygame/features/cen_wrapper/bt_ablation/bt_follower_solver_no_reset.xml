@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Leader-as-solver ablation (2026-10-07, report 261007 §5.2, Table 2): bt_follower_solver.xml without
+  ResetOnLeave, i.e. grace (leader, pair with bt_leader_solver.xml) + commit, no reset. A follower leaving the
+  cluster keeps the plan's bundle (CommitToPlan); once the bundle is gone its plugin runs with the state it had before it
+  entered the cluster. CBBA and Hungarian; GRAPE uses bt_ablation/bt_follower_solver_grape_no_reset.xml.
+  2026-10-08 (report 261007 "수정사항"; Fig. 2 skeleton): the disconnected branch is
+  Seq([OnLeave], Fallback([Keep], Parallel([Ingest], [Filter], AssignTask, [EmitDec]))) — the chattering slots
+  [OnLeave] and [Keep] above, the conflict slots around AssignTask below, all of the latter ticked every tick.
+  iso keeps the follower's own last decision (KeepPlanWhenIsolated source="own") in every design.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="space-simulator">
+    <Parallel failure_count="None"
+              success_count="None">
+      <GatherLocalInfo/>
+      <ReactiveFallback>
+        <ReactiveSequence>
+          <IsConnectedWithLeader/>
+          <ApplyCenTask/>
+          <ForwardCenAllocation/>
+          <RelayMessages scope="outside" nested="1"/>
+        </ReactiveSequence>
+        <ReactiveFallback>
+          <CommitToPlan/>
+          <KeepPlanWhenIsolated source="own"/>
+          <Parallel>
+            <UnpackRelayedMessages/>
+            <FilterClaimedTasks/>
+            <AssignTask/>
+            <ForwardCenAllocation/>
+          </Parallel>
+        </ReactiveFallback>
+      </ReactiveFallback>
+      <ReactiveSequence>
+        <ReactiveFallback>
+          <IsTaskAssigned/>
+          <Halt/>
+        </ReactiveFallback>
+        <ReactiveFallback>
+          <IsTaskCompleted/>
+          <ReactiveSequence>
+            <ReactiveFallback>
+              <IsArrivedAtTarget/>
+              <MoveToTarget/>
+            </ReactiveFallback>
+            <ExecuteTask/>
+          </ReactiveSequence>
+        </ReactiveFallback>
+      </ReactiveSequence>
+    </Parallel>
+  </BehaviorTree>
+</root>
